@@ -27,3 +27,33 @@ Run it yourself:
 ```bash
 python benchmarks/staleness_benchmark.py
 ```
+
+## LoCoMo retrieval benchmark
+
+**What it tests:** whether jottermem's memory-layer logic — atomic fact extraction plus hybrid keyword-boosted recall — actually improves retrieval on real conversational data, not just the synthetic scenario above. Uses [LoCoMo](https://github.com/snap-research/locomo) (Maharana et al., *"Evaluating Very Long-Term Conversational Memory of LLM Agents,"* 2024), a published benchmark of 10 long-term multi-session conversations (5,882 turns total) with human-annotated QA pairs.
+
+**What it is not:** an answer-generation benchmark. jottermem's `recall()` returns memories, not generated answers, so this measures *retrieval* — Recall@k over the paper's single-hop QA category (795 questions, each with exactly one ground-truth evidence turn): does that turn appear in the top-k results? It's also not using a semantic embedder — both sides use jottermem's own dependency-free `HashingEmbedder`, isolating the memory-layer logic from embedding quality, same as the staleness benchmark above.
+
+**Not vendored:** the dataset's source repo carries no asserted open-source license, so `benchmarks/locomo_benchmark.py` downloads it at run time into `benchmarks/data/` (gitignored) rather than redistributing a copy here.
+
+- **Naive top-K:** every conversation turn stored as its own memory, plain cosine ranking at query time.
+- **jottermem:** `remember()` per turn (splits multi-sentence turns into atomic facts, dedups near-identical restatements), `recall()` with hybrid keyword-boosted scoring.
+
+**Result** (`python benchmarks/locomo_benchmark.py`, ~6 minutes, 795 single-hop questions across 10 conversations):
+
+| k | naive Recall@k | jottermem Recall@k |
+|---|---|---|
+| 1 | 8.8% | **17.2%** |
+| 3 | 15.7% | **27.4%** |
+| 5 | 18.9% | **31.7%** |
+| 10 | 24.9% | **37.7%** |
+
+jottermem roughly **doubles** naive top-K's Recall@k at every k on real conversational data. The absolute numbers are modest by design — `HashingEmbedder` is lexical, not semantic, so this isn't state-of-the-art retrieval — but the *relative* improvement is the point: splitting turns into atomic facts (directly addressing the chunk-boundary problem from [PRD §1.2](PRD.md)) plus hybrid keyword scoring measurably improves what gets retrieved, using the exact same embedder on both sides. Swapping in `SentenceTransformerEmbedder` would likely raise the absolute numbers further on both sides; that comparison isn't run here yet.
+
+**Acceleration speedup, same data:** brute-force cosine scanning is the bottleneck at this scale — on `conv-26` (419 turns, 69 questions), `remember()` + `recall()` for the whole conversation took **14.8s** brute-force versus **0.39s** with `sqlite-vec` acceleration (`use_sqlite_vec=True`), a **~38x** speedup with identical results. This is what the [sqlite-vec acceleration](README.md#accelerating-search-with-sqlite-vec) is for.
+
+Run it yourself (downloads ~2.7MB on first run):
+
+```bash
+python benchmarks/locomo_benchmark.py
+```

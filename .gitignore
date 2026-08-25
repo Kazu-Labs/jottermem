@@ -1,3 +1,6 @@
+# Downloaded benchmark datasets (not vendored; fetched at run time)
+benchmarks/data/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]

@@ -109,7 +109,7 @@ mem.remember("I live in Boston and work at Acme Corp.")
 
 ### Accelerating search with sqlite-vec
 
-The default vector search is a brute-force cosine scan in Python — no C extension, works everywhere. Once that stops being fast enough, `pip install jottermem[sqlite-vec]` accelerates it with a `sqlite-vec` `vec0` index transparently:
+The default vector search is a brute-force cosine scan in Python — no C extension, works everywhere. Once that stops being fast enough, `pip install jottermem[sqlite-vec]` accelerates it with a `sqlite-vec` `vec0` index transparently. On a real 419-turn conversation from the [LoCoMo benchmark](BENCHMARKS.md#locomo-retrieval-benchmark), acceleration took the same `remember()` + `recall()` workload from 14.8s to 0.39s — about **38x**.
 
 ```python
 mem = Memory("agent.db")  # use_sqlite_vec="auto" by default
@@ -129,14 +129,14 @@ Early / pre-alpha. Working today:
 - Deduplication on write, key-based staleness/supersession
 - Hybrid recall (cosine similarity + keyword overlap boost)
 - `LLMExtractor` for provider-agnostic, LLM-backed atomic fact extraction
-- A [staleness benchmark](BENCHMARKS.md) showing 3/3 vs. 0/3 current-fact accuracy against a naive top-K baseline on a synthetic evolving-facts scenario, using the same embedder on both sides
 - Optional `sqlite-vec` acceleration (`pip install jottermem[sqlite-vec]`), used automatically when available and never required
+- Two [published benchmarks](BENCHMARKS.md): a synthetic staleness scenario (3/3 vs. 0/3 current-fact accuracy vs. naive top-K) and a real one on [LoCoMo](https://github.com/snap-research/locomo)'s single-hop QA set, where jottermem roughly **doubles** naive top-K's Recall@k (e.g. 17.2% vs. 8.8% at k=1) across 795 questions on real conversational data, using the same dependency-free embedder on both sides
 
-Roadmap: a broader published benchmark against naive top-K RAG on a standard long-term-memory dataset (LoCoMo-style — the synthetic staleness benchmark above is a narrower first proof point, not a replacement for that). See [PRD.md](PRD.md) for the full plan and explicit non-goals (this is not trying to be Cognee's graph memory or Mem0 Platform's multi-tenant infra).
+See [PRD.md](PRD.md) for the full plan and explicit non-goals (this is not trying to be Cognee's graph memory or Mem0 Platform's multi-tenant infra).
 
 ## Design notes / trade-offs
 
-- **Vector search is brute-force cosine in Python by default**, accelerated by an optional `sqlite-vec` index (see above) — the brute-force path keeps a plain `pip install jottermem` genuinely dependency-free (no C extension wheels that might not exist for your platform, and no dependency on `sqlite3` being built with loadable-extension support, which Apple's system Python on macOS isn't), and is plenty fast at the single-file, thousands-of-memories scale this library targets on its own.
+- **Vector search is brute-force cosine in Python by default**, accelerated by an optional `sqlite-vec` index (see above) — the brute-force path keeps a plain `pip install jottermem` genuinely dependency-free (no C extension wheels that might not exist for your platform, and no dependency on `sqlite3` being built with loadable-extension support, which Apple's system Python on macOS isn't). It's fine at hundreds of memories; measured at ~500 (see the LoCoMo benchmark above), it's already ~38x slower than the accelerated path — reach for `pip install jottermem[sqlite-vec]` well before "thousands."
 - **The default embedder is lexical, not semantic** — it won't match paraphrases. It's there so `pip install jottermem` works standalone in under 5 minutes with zero infra decisions; swap in `SentenceTransformerEmbedder` or your own API-backed embedder when recall quality matters more than zero dependencies.
 - **Staleness resolution is key-based, not inferred** — see above.
 - **All stored embeddings are unit-normalized**, regardless of what a custom embedder returns — this keeps the sqlite-vec acceleration's Euclidean-to-cosine distance conversion exact for every embedder, not just the bundled ones.

@@ -85,9 +85,10 @@ class SQLiteStore:
     """Single-file SQLite storage for memories and their embeddings.
 
     By default, vector search is a brute-force cosine scan in Python over
-    unpacked embeddings — plenty fast at the single-file, thousands-of-
-    memories scale this library targets, and it never depends on a C
-    extension being loadable.
+    unpacked embeddings — fine at hundreds of memories, and it never
+    depends on a C extension being loadable. Measured on a real 419-turn
+    conversation (see BENCHMARKS.md), it's already ~38x slower than the
+    sqlite-vec-accelerated path below at that scale.
 
     When `dim` is given and the `sqlite-vec` package is installed on a
     Python whose sqlite3 build supports loadable extensions, a `vec0`
