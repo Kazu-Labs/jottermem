@@ -120,6 +120,30 @@ mem = Memory("agent.db")  # use_sqlite_vec="auto" by default
 
 One tradeoff worth knowing: when accelerated, `recall()`'s keyword-overlap boost re-ranks within the nearest ~50 (or `10 × k`, whichever is larger) vector matches rather than every stored memory — an inherent ANN-then-rerank tradeoff. A memory with heavy keyword overlap but a poor vector-similarity rank outside that window won't surface, where the (slower) brute-force path would still find it via the keyword score alone. Dedup and staleness supersession are unaffected — those only need the single nearest match, which the index finds exactly.
 
+### MCP server
+
+```bash
+pip install jottermem[mcp]   # requires Python >=3.10, the mcp SDK's own requirement
+jottermem-mcp
+```
+
+Exposes `remember`, `recall`, `forget`, and `list_memories` as MCP tools, so Claude Code and other MCP-aware agents can use jottermem as their own persistent memory directly — no generated Python required. Point the client at the `jottermem-mcp` command; configure the backing file with `JOTTERMEM_DB_PATH` (default `jottermem.db`) and the default namespace with `JOTTERMEM_NAMESPACE`.
+
+Example client config (Claude Code, `.mcp.json` or similar):
+
+```json
+{
+  "mcpServers": {
+    "jottermem": {
+      "command": "jottermem-mcp",
+      "env": { "JOTTERMEM_DB_PATH": "/path/to/agent.db" }
+    }
+  }
+}
+```
+
+The store is safe to call from multiple threads — MCP's SDK runs sync tool handlers in a worker-thread pool, so `SQLiteStore` opens with `check_same_thread=False` and serializes access with a lock rather than assuming single-threaded use.
+
 ## Status
 
 Early / pre-alpha. Working today:
@@ -132,6 +156,7 @@ Early / pre-alpha. Working today:
 - `LLMExtractor` for provider-agnostic, LLM-backed atomic fact extraction
 - Optional `sqlite-vec` acceleration (`pip install jottermem[sqlite-vec]`), used automatically when available and never required
 - Two [published benchmarks](BENCHMARKS.md): a synthetic staleness scenario (3/3 vs. 0/3 current-fact accuracy vs. naive top-K) and a real one on [LoCoMo](https://github.com/snap-research/locomo)'s single-hop QA set, where jottermem roughly **doubles** naive top-K's Recall@k (e.g. 17.2% vs. 8.8% at k=1) across 795 questions on real conversational data, using the same dependency-free embedder on both sides
+- An [MCP server](#mcp-server) (`pip install jottermem[mcp]`) so agents can use jottermem as memory directly, not just as a library
 
 Published on [PyPI](https://pypi.org/project/jottermem/). See [PRD.md](PRD.md) for the full plan and explicit non-goals (this is not trying to be Cognee's graph memory or Mem0 Platform's multi-tenant infra).
 
@@ -141,6 +166,7 @@ Published on [PyPI](https://pypi.org/project/jottermem/). See [PRD.md](PRD.md) f
 - **The default embedder is lexical, not semantic** — it won't match paraphrases. It's there so `pip install jottermem` works standalone in under 5 minutes with zero infra decisions; swap in `SentenceTransformerEmbedder` or your own API-backed embedder when recall quality matters more than zero dependencies.
 - **Staleness resolution is key-based, not inferred** — see above.
 - **All stored embeddings are unit-normalized**, regardless of what a custom embedder returns — this keeps the sqlite-vec acceleration's Euclidean-to-cosine distance conversion exact for every embedder, not just the bundled ones.
+- **`SQLiteStore` is thread-safe**, found the hard way: the MCP server runs sync tool calls in a worker-thread pool, and the default `sqlite3` connection isn't usable across threads. The connection opens with `check_same_thread=False` and every operation holds a lock.
 
 ## Releasing
 

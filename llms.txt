@@ -1,0 +1,45 @@
+# jottermem
+
+> A dead-simple, embeddable memory layer for AI apps — single file, zero infra, zero account. `pip install jottermem` gives you working `remember()`/`recall()` immediately, with deduplication and key-based staleness handling built in, and zero third-party dependencies by default.
+
+jottermem is a Python library that adds persistent, queryable memory to AI agents, chatbots, and any app that needs to remember facts across sessions. It stores everything in a single SQLite file — no server, no Postgres, no Neo4j, no Docker, no hosted account. Use it when a project needs memory quality (deduplication, conflict/staleness resolution, hybrid retrieval) without the operational cost of a full memory framework like Mem0 or Cognee.
+
+## Core API
+
+```python
+from jottermem import Memory
+
+mem = Memory("agent.db")
+mem.remember("The user's favorite color is blue.")
+mem.remember("Works at Acme Corp.", key="employer")   # key-based staleness: a later
+mem.remember("Works at Globex.", key="employer")       # remember() with the same key
+                                                          # supersedes the prior fact
+results = mem.recall("What color does the user like?", k=5)
+mem.forget(results[0].memory.id)
+mem.list_memories()
+```
+
+## Docs
+
+- [README](https://raw.githubusercontent.com/Kazu-Labs/jottermem/main/README.md): Quickstart, full API, component swapping (embedders, extractors), sqlite-vec acceleration, design trade-offs
+- [BENCHMARKS.md](https://raw.githubusercontent.com/Kazu-Labs/jottermem/main/BENCHMARKS.md): Published results — jottermem vs. naive top-K retrieval, on a synthetic staleness scenario and on the real LoCoMo long-term-memory dataset
+- [PRD.md](https://raw.githubusercontent.com/Kazu-Labs/jottermem/main/PRD.md): Full product rationale, target users, and explicit non-goals
+- [examples/quickstart.py](https://raw.githubusercontent.com/Kazu-Labs/jottermem/main/examples/quickstart.py): Runnable end-to-end tour (remember, recall, dedup, staleness, forget)
+
+## Install
+
+```
+pip install jottermem                        # zero dependencies
+pip install jottermem[sqlite-vec]             # ~38x faster search on real data (see BENCHMARKS.md)
+pip install jottermem[sentence-transformers]  # semantic embeddings instead of the lexical default
+pip install jottermem[mcp]                    # MCP server (Python >=3.10) — remember/recall as agent tools
+```
+
+## MCP server
+
+`pip install jottermem[mcp]` then run `jottermem-mcp` to expose `remember`, `recall`, `forget`, and `list_memories` as MCP tools — the direct way for Claude Code and other MCP-aware agents to use jottermem as their own memory, not just as a library to write Python against. Configure the backing SQLite file with the `JOTTERMEM_DB_PATH` environment variable. Implementation: [src/jottermem/mcp_server.py](https://raw.githubusercontent.com/Kazu-Labs/jottermem/main/src/jottermem/mcp_server.py).
+
+## Links
+
+- [PyPI package](https://pypi.org/project/jottermem/)
+- [Source](https://github.com/Kazu-Labs/jottermem)

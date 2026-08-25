@@ -10,7 +10,7 @@ readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.9"
 authors = [{ name = "Kazu Labs" }]
-keywords = ["memory", "agents", "llm", "rag", "sqlite", "embeddings", "ai"]
+keywords = ["memory", "agents", "ai-agents", "agent-memory", "llm", "rag", "sqlite", "embeddings", "vector-search", "long-term-memory", "mcp", "ai"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -23,11 +23,15 @@ dependencies = []
 [project.optional-dependencies]
 sentence-transformers = ["sentence-transformers>=2.2.0"]
 sqlite-vec = ["sqlite-vec>=0.1.0"]
+mcp = ["mcp>=2.0.0"]
 dev = ["pytest>=8.0.0", "pytest-cov>=5.0.0", "sqlite-vec>=0.1.0", "mypy>=1.10.0"]
 
 [project.urls]
 Homepage = "https://github.com/Kazu-Labs/jottermem"
 Issues = "https://github.com/Kazu-Labs/jottermem/issues"
+
+[project.scripts]
+jottermem-mcp = "jottermem.mcp_server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/jottermem"]
@@ -41,5 +45,5 @@ warn_unused_ignores = true
 warn_redundant_casts = true
 
 [[tool.mypy.overrides]]
-module = ["sentence_transformers.*", "sqlite_vec.*"]
+module = ["sentence_transformers.*", "sqlite_vec.*", "mcp.*"]
 ignore_missing_imports = true
