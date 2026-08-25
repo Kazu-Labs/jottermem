@@ -86,7 +86,26 @@ from jottermem.embeddings import SentenceTransformerEmbedder
 mem = Memory("agent.db", embedder=SentenceTransformerEmbedder())
 ```
 
-Any object with a `dim` attribute and a `__call__(texts: list[str]) -> list[list[float]]` method works as an embedder. Any object with an `extract(text: str) -> list[str]` method works as an extractor — bring your own LLM-based extractor for finer-grained atomic facts than the default rule-based sentence splitter.
+Any object with a `dim` attribute and a `__call__(texts: list[str]) -> list[list[float]]` method works as an embedder. Any object with an `extract(text: str) -> list[str]` method works as an extractor.
+
+For finer-grained atomic facts than the default rule-based sentence splitter, use `LLMExtractor` — it's provider-agnostic (you supply a `complete(prompt) -> str` callable), so it adds no dependency and works with any LLM API:
+
+```python
+from jottermem import Memory
+from jottermem.extraction import LLMExtractor
+
+def complete(prompt: str) -> str:
+    msg = anthropic_client.messages.create(
+        model="claude-sonnet-5",
+        max_tokens=512,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return msg.content[0].text
+
+mem = Memory("agent.db", extractor=LLMExtractor(complete))
+mem.remember("I live in Boston and work at Acme Corp.")
+# -> two atomic facts instead of one compound sentence
+```
 
 ## Status
 
@@ -98,7 +117,9 @@ Early / pre-alpha. Working today:
 - Deduplication on write, key-based staleness/supersession
 - Hybrid recall (cosine similarity + keyword overlap boost)
 
-Roadmap: `sqlite-vec`-backed index as a pluggable accelerator once brute-force cosine scanning stops being enough, LLM-based extraction as an opt-in adapter, published benchmark against naive top-K RAG. See [PRD.md](PRD.md) for the full plan and explicit non-goals (this is not trying to be Cognee's graph memory or Mem0 Platform's multi-tenant infra).
+- `LLMExtractor` for provider-agnostic, LLM-backed atomic fact extraction
+
+Roadmap: `sqlite-vec`-backed index as a pluggable accelerator once brute-force cosine scanning stops being enough, a published benchmark against naive top-K RAG on a standard long-term-memory dataset (LoCoMo-style). See [PRD.md](PRD.md) for the full plan and explicit non-goals (this is not trying to be Cognee's graph memory or Mem0 Platform's multi-tenant infra).
 
 ## Design notes / trade-offs
 
