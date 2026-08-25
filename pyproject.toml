@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "jottermem"
-version = "0.1.0"
+version = "0.1.1"
 description = "A dead-simple, embeddable memory layer for AI apps — single file, zero infra, zero account"
 readme = "README.md"
 license = "Apache-2.0"
