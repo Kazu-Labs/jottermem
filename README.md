@@ -107,6 +107,18 @@ mem.remember("I live in Boston and work at Acme Corp.")
 # -> two atomic facts instead of one compound sentence
 ```
 
+### Accelerating search with sqlite-vec
+
+The default vector search is a brute-force cosine scan in Python — no C extension, works everywhere. Once that stops being fast enough, `pip install jottermem[sqlite-vec]` accelerates it with a `sqlite-vec` `vec0` index transparently:
+
+```python
+mem = Memory("agent.db")  # use_sqlite_vec="auto" by default
+```
+
+`"auto"` uses the index when it's available and silently falls back to brute-force when it isn't — nothing to configure, and a plain `pip install jottermem` still works with zero extra dependencies either way. Two things have to be true for acceleration to actually kick in: the `sqlite-vec` package is installed, and the running Python's `sqlite3` module supports loadable extensions (true of python.org and Homebrew builds; **not** true of Apple's system Python on macOS). Pass `use_sqlite_vec=True` to raise instead of silently falling back if you need to know acceleration is actually active, or `False` to disable it outright.
+
+One tradeoff worth knowing: when accelerated, `recall()`'s keyword-overlap boost re-ranks within the nearest ~50 (or `10 × k`, whichever is larger) vector matches rather than every stored memory — an inherent ANN-then-rerank tradeoff. A memory with heavy keyword overlap but a poor vector-similarity rank outside that window won't surface, where the (slower) brute-force path would still find it via the keyword score alone. Dedup and staleness supersession are unaffected — those only need the single nearest match, which the index finds exactly.
+
 ## Status
 
 Early / pre-alpha. Working today:
@@ -119,14 +131,16 @@ Early / pre-alpha. Working today:
 
 - `LLMExtractor` for provider-agnostic, LLM-backed atomic fact extraction
 - A [staleness benchmark](BENCHMARKS.md) showing 3/3 vs. 0/3 current-fact accuracy against a naive top-K baseline on a synthetic evolving-facts scenario, using the same embedder on both sides
+- Optional `sqlite-vec` acceleration (`pip install jottermem[sqlite-vec]`), used automatically when available and never required
 
-Roadmap: `sqlite-vec`-backed index as a pluggable accelerator once brute-force cosine scanning stops being enough, a broader published benchmark against naive top-K RAG on a standard long-term-memory dataset (LoCoMo-style — the synthetic staleness benchmark above is a narrower first proof point, not a replacement for that). See [PRD.md](PRD.md) for the full plan and explicit non-goals (this is not trying to be Cognee's graph memory or Mem0 Platform's multi-tenant infra).
+Roadmap: a broader published benchmark against naive top-K RAG on a standard long-term-memory dataset (LoCoMo-style — the synthetic staleness benchmark above is a narrower first proof point, not a replacement for that). See [PRD.md](PRD.md) for the full plan and explicit non-goals (this is not trying to be Cognee's graph memory or Mem0 Platform's multi-tenant infra).
 
 ## Design notes / trade-offs
 
-- **Vector search is brute-force cosine in Python**, not `sqlite-vec`, for now — this keeps the zero-dependency install honest (no C extension wheels that might not exist for your platform) and is plenty fast at the single-file, thousands-of-memories scale this library targets. It's an implementation detail behind `SQLiteStore`, swappable later without changing the `Memory` API.
+- **Vector search is brute-force cosine in Python by default**, accelerated by an optional `sqlite-vec` index (see above) — the brute-force path keeps a plain `pip install jottermem` genuinely dependency-free (no C extension wheels that might not exist for your platform, and no dependency on `sqlite3` being built with loadable-extension support, which Apple's system Python on macOS isn't), and is plenty fast at the single-file, thousands-of-memories scale this library targets on its own.
 - **The default embedder is lexical, not semantic** — it won't match paraphrases. It's there so `pip install jottermem` works standalone in under 5 minutes with zero infra decisions; swap in `SentenceTransformerEmbedder` or your own API-backed embedder when recall quality matters more than zero dependencies.
 - **Staleness resolution is key-based, not inferred** — see above.
+- **All stored embeddings are unit-normalized**, regardless of what a custom embedder returns — this keeps the sqlite-vec acceleration's Euclidean-to-cosine distance conversion exact for every embedder, not just the bundled ones.
 
 ## License
 

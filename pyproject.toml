@@ -22,7 +22,8 @@ dependencies = []
 
 [project.optional-dependencies]
 sentence-transformers = ["sentence-transformers>=2.2.0"]
-dev = ["pytest>=8.0.0", "pytest-cov>=5.0.0"]
+sqlite-vec = ["sqlite-vec>=0.1.0"]
+dev = ["pytest>=8.0.0", "pytest-cov>=5.0.0", "sqlite-vec>=0.1.0"]
 
 [project.urls]
 Homepage = "https://github.com/Kazu-Labs/jottermem"

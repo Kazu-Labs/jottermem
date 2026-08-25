@@ -17,4 +17,8 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e ".[dev]"
+      - name: Report sqlite-vec extension-loading support
+        run: |
+          python -c "import sqlite3; print('enable_load_extension:', hasattr(sqlite3.Connection, 'enable_load_extension'))"
+      - run: python -m pytest -v tests/test_sqlite_vec.py
       - run: python -m pytest -q

@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 import sqlite3
 import time
+import warnings
 from array import array
 from pathlib import Path
 
 from ..models import MemoryRecord, MemoryStatus
+from ..similarity import l2_distance_to_cosine
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS memories (
@@ -26,6 +28,8 @@ CREATE INDEX IF NOT EXISTS idx_memories_namespace_status
 CREATE INDEX IF NOT EXISTS idx_memories_namespace_key_status
     ON memories (namespace, key, status);
 """
+
+_VEC_TABLE = "vec_index"
 
 
 def pack_embedding(vector: list[float]) -> bytes:
@@ -52,22 +56,93 @@ def _row_to_record(row: sqlite3.Row) -> MemoryRecord:
     )
 
 
+def _try_load_sqlite_vec(conn: sqlite3.Connection):
+    """Return the sqlite_vec module if it could be loaded into `conn`, else None.
+
+    Two independent things have to be true: this Python's sqlite3 build has
+    to support loadable extensions at all (Apple's system Python does not;
+    python.org and Homebrew builds do), and the `sqlite-vec` package has to
+    be installed. Either being false means "not available," not an error —
+    the caller decides whether that's fatal.
+    """
+    if not hasattr(conn, "enable_load_extension"):
+        return None
+    try:
+        import sqlite_vec
+    except ImportError:
+        return None
+    try:
+        conn.enable_load_extension(True)
+        sqlite_vec.load(conn)
+        conn.enable_load_extension(False)
+    except Exception:
+        return None
+    return sqlite_vec
+
+
 class SQLiteStore:
     """Single-file SQLite storage for memories and their embeddings.
 
-    Vector search is a brute-force cosine scan in Python over unpacked
-    embeddings. That's the right tradeoff for the single-file/zero-infra
-    scale this library targets (thousands, not millions, of memories per
-    file); an optional sqlite-vec-backed index is a natural v1.1 accelerator
-    behind this same interface once that's the bottleneck.
+    By default, vector search is a brute-force cosine scan in Python over
+    unpacked embeddings — plenty fast at the single-file, thousands-of-
+    memories scale this library targets, and it never depends on a C
+    extension being loadable.
+
+    When `dim` is given and the `sqlite-vec` package is installed on a
+    Python whose sqlite3 build supports loadable extensions, a `vec0`
+    virtual table accelerates nearest-neighbor search instead. This is
+    opt-in-by-availability (`use_sqlite_vec="auto"`, the default): it's used
+    silently when possible and never breaks a plain `pip install jottermem`
+    install when it isn't.
     """
 
-    def __init__(self, path: str | Path = "jottermem.db"):
+    def __init__(
+        self,
+        path: str | Path = "jottermem.db",
+        dim: int | None = None,
+        use_sqlite_vec: bool | str = "auto",
+    ):
         self.path = str(path)
         self._conn = sqlite3.connect(self.path)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
         self._conn.commit()
+
+        self._vec_enabled = False
+        self._sqlite_vec = None
+        if use_sqlite_vec and dim is not None:
+            sqlite_vec = _try_load_sqlite_vec(self._conn)
+            if sqlite_vec is None:
+                if use_sqlite_vec is True:
+                    raise RuntimeError(
+                        "use_sqlite_vec=True but the sqlite-vec extension "
+                        "could not be loaded — either the 'sqlite-vec' "
+                        "package isn't installed (pip install "
+                        "jottermem[sqlite-vec]) or this Python's sqlite3 "
+                        "build doesn't support loadable extensions (true of "
+                        "Apple's system Python on macOS). Pass "
+                        "use_sqlite_vec='auto' or False to fall back to the "
+                        "brute-force scan instead."
+                    )
+            else:
+                self._sqlite_vec = sqlite_vec
+                self._init_vec_index(dim)
+
+    def _init_vec_index(self, dim: int) -> None:
+        try:
+            self._conn.execute(
+                f"""
+                CREATE VIRTUAL TABLE IF NOT EXISTS {_VEC_TABLE} USING vec0(
+                    namespace TEXT PARTITION KEY,
+                    status TEXT,
+                    embedding FLOAT[{int(dim)}]
+                )
+                """
+            )
+            self._conn.commit()
+            self._vec_enabled = True
+        except sqlite3.OperationalError:
+            self._vec_enabled = False
 
     def close(self) -> None:
         self._conn.close()
@@ -98,7 +173,7 @@ class SQLiteStore:
             created_at=now,
             updated_at=now,
         )
-        self._conn.execute(
+        cur = self._conn.execute(
             """
             INSERT INTO memories
                 (id, text, namespace, key, metadata, embedding, status,
@@ -119,7 +194,32 @@ class SQLiteStore:
             ),
         )
         self._conn.commit()
+        if self._vec_enabled:
+            self._vec_insert(cur.lastrowid, record, embedding)
         return record
+
+    def _vec_insert(self, rowid: int, record: MemoryRecord, embedding: list[float]) -> None:
+        try:
+            self._conn.execute(
+                f"INSERT INTO {_VEC_TABLE}(rowid, namespace, status, embedding) "
+                "VALUES (?, ?, ?, ?)",
+                (
+                    rowid,
+                    record.namespace,
+                    record.status,
+                    self._sqlite_vec.serialize_float32(embedding),
+                ),
+            )
+            self._conn.commit()
+        except sqlite3.OperationalError:
+            warnings.warn(
+                "sqlite-vec insert failed (likely an embedding dimension "
+                "mismatch with an existing index in this file); falling "
+                "back to the brute-force scan for the rest of this session.",
+                RuntimeWarning,
+                stacklevel=3,
+            )
+            self._vec_enabled = False
 
     def get(self, id: str) -> MemoryRecord | None:
         row = self._conn.execute(
@@ -150,11 +250,30 @@ class SQLiteStore:
             (MemoryStatus.SUPERSEDED, superseded_by, time.time(), id),
         )
         self._conn.commit()
+        if self._vec_enabled:
+            self._conn.execute(
+                f"UPDATE {_VEC_TABLE} SET status = ? WHERE rowid = "
+                "(SELECT rowid FROM memories WHERE id = ?)",
+                (MemoryStatus.SUPERSEDED, id),
+            )
+            self._conn.commit()
 
     def delete(self, id: str) -> bool:
+        rowid = None
+        if self._vec_enabled:
+            row = self._conn.execute(
+                "SELECT rowid FROM memories WHERE id = ?", (id,)
+            ).fetchone()
+            rowid = row[0] if row else None
+
         cur = self._conn.execute("DELETE FROM memories WHERE id = ?", (id,))
         self._conn.commit()
-        return cur.rowcount > 0
+        deleted = cur.rowcount > 0
+
+        if deleted and self._vec_enabled and rowid is not None:
+            self._conn.execute(f"DELETE FROM {_VEC_TABLE} WHERE rowid = ?", (rowid,))
+            self._conn.commit()
+        return deleted
 
     def find_active_by_key(self, namespace: str, key: str) -> MemoryRecord | None:
         row = self._conn.execute(
@@ -200,6 +319,56 @@ class SQLiteStore:
                 namespace, include_superseded, metadata_filter
             )
         ]
+
+    def vec_search(
+        self,
+        namespace: str,
+        embedding: list[float],
+        k: int,
+        include_superseded: bool = False,
+    ) -> list[tuple[MemoryRecord, float]] | None:
+        """Top-k (MemoryRecord, cosine_similarity) via the sqlite-vec index,
+        or None if acceleration isn't available (caller should fall back to
+        `iter_candidates`). `embedding` must already be unit-normalized —
+        the cosine similarity is derived from vec0's Euclidean distance
+        under that assumption.
+        """
+        if not self._vec_enabled:
+            return None
+        if k <= 0:
+            return []
+
+        query = self._sqlite_vec.serialize_float32(embedding)
+        if include_superseded:
+            sql = (
+                f"SELECT rowid, distance FROM {_VEC_TABLE} "
+                "WHERE embedding MATCH ? AND k = ? AND namespace = ? "
+                "ORDER BY distance"
+            )
+            params = (query, k, namespace)
+        else:
+            sql = (
+                f"SELECT rowid, distance FROM {_VEC_TABLE} "
+                "WHERE embedding MATCH ? AND k = ? AND namespace = ? "
+                "AND status = ? ORDER BY distance"
+            )
+            params = (query, k, namespace, MemoryStatus.ACTIVE)
+
+        try:
+            rows = self._conn.execute(sql, params).fetchall()
+        except sqlite3.OperationalError:
+            self._vec_enabled = False
+            return None
+
+        results = []
+        for rowid, distance in rows:
+            record_row = self._conn.execute(
+                "SELECT * FROM memories WHERE rowid = ?", (rowid,)
+            ).fetchone()
+            if record_row is None:
+                continue
+            results.append((_row_to_record(record_row), l2_distance_to_cosine(distance)))
+        return results
 
 
 def _matches(metadata: dict, filter_: dict) -> bool:

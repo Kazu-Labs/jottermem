@@ -6,12 +6,21 @@ from pathlib import Path
 from .embeddings import EmbeddingFunction, HashingEmbedder
 from .extraction import Extractor, SentenceExtractor
 from .models import MemoryRecord, RecallResult
-from .similarity import cosine
+from .similarity import cosine, normalize
 from .storage import SQLiteStore
 from .text import tokenize
 
 DEFAULT_DEDUP_THRESHOLD = 0.92
 DEFAULT_KEYWORD_BOOST = 0.05
+
+# When accelerated by sqlite-vec, recall() over-fetches this many nearest
+# neighbors before applying the keyword-overlap boost and re-sorting, so the
+# boost can still reorder within a reasonably large candidate pool instead
+# of just the raw top-k. A document with very high keyword overlap but poor
+# vector rank outside this pool won't surface — an inherent ANN+rerank
+# tradeoff, not present in the (slower) full brute-force scan.
+_VEC_OVERFETCH_MIN = 50
+_VEC_OVERFETCH_MULTIPLIER = 10
 
 
 class Memory:
@@ -30,10 +39,13 @@ class Memory:
         namespace: str = "default",
         dedup_threshold: float = DEFAULT_DEDUP_THRESHOLD,
         keyword_boost: float = DEFAULT_KEYWORD_BOOST,
+        use_sqlite_vec: bool | str = "auto",
     ):
-        self.store = SQLiteStore(path)
         self.embedder = embedder or HashingEmbedder()
         self.extractor = extractor or SentenceExtractor()
+        self.store = SQLiteStore(
+            path, dim=self.embedder.dim, use_sqlite_vec=use_sqlite_vec
+        )
         self.namespace = namespace
         self.dedup_threshold = dedup_threshold
         self.keyword_boost = keyword_boost
@@ -79,7 +91,7 @@ class Memory:
 
         results: list[MemoryRecord] = []
         for fact in facts:
-            embedding = self.embedder([fact])[0]
+            embedding = normalize(self.embedder([fact])[0])
             duplicate = self._find_duplicate(ns, embedding)
             if duplicate is not None:
                 if key is not None and duplicate.key != key:
@@ -123,14 +135,26 @@ class Memory:
     ) -> list[RecallResult]:
         """Hybrid semantic + keyword-overlap search over stored memories."""
         ns = namespace or self.namespace
-        query_vec = self.embedder([query])[0]
+        query_vec = normalize(self.embedder([query])[0])
         query_tokens = set(tokenize(query))
 
+        scored_pairs: list[tuple[MemoryRecord, float]] | None = None
+        if filter is None:
+            overfetch_k = max(k * _VEC_OVERFETCH_MULTIPLIER, _VEC_OVERFETCH_MIN)
+            scored_pairs = self.store.vec_search(
+                ns, query_vec, k=overfetch_k, include_superseded=include_superseded
+            )
+
+        if scored_pairs is None:
+            scored_pairs = [
+                (record, cosine(query_vec, vec))
+                for record, vec in self.store.iter_candidates(
+                    ns, include_superseded=include_superseded, metadata_filter=filter
+                )
+            ]
+
         scored: list[RecallResult] = []
-        for record, vec in self.store.iter_candidates(
-            ns, include_superseded=include_superseded, metadata_filter=filter
-        ):
-            score = cosine(query_vec, vec)
+        for record, score in scored_pairs:
             if self.keyword_boost and query_tokens:
                 text_tokens = set(tokenize(record.text))
                 overlap = len(query_tokens & text_tokens)
@@ -158,6 +182,13 @@ class Memory:
     def _find_duplicate(
         self, namespace: str, embedding: list[float]
     ) -> MemoryRecord | None:
+        nearest = self.store.vec_search(namespace, embedding, k=1)
+        if nearest is not None:
+            if not nearest:
+                return None
+            record, score = nearest[0]
+            return record if score >= self.dedup_threshold else None
+
         best_record: MemoryRecord | None = None
         best_score = 0.0
         for record, vec in self.store.iter_candidates(namespace):
