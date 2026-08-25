@@ -128,7 +128,6 @@ Early / pre-alpha. Working today:
 - Dependency-free default embedder (deterministic hashing-trick bag-of-words) and default rule-based sentence extractor
 - Deduplication on write, key-based staleness/supersession
 - Hybrid recall (cosine similarity + keyword overlap boost)
-
 - `LLMExtractor` for provider-agnostic, LLM-backed atomic fact extraction
 - A [staleness benchmark](BENCHMARKS.md) showing 3/3 vs. 0/3 current-fact accuracy against a naive top-K baseline on a synthetic evolving-facts scenario, using the same embedder on both sides
 - Optional `sqlite-vec` acceleration (`pip install jottermem[sqlite-vec]`), used automatically when available and never required
@@ -141,6 +140,10 @@ Roadmap: a broader published benchmark against naive top-K RAG on a standard lon
 - **The default embedder is lexical, not semantic** — it won't match paraphrases. It's there so `pip install jottermem` works standalone in under 5 minutes with zero infra decisions; swap in `SentenceTransformerEmbedder` or your own API-backed embedder when recall quality matters more than zero dependencies.
 - **Staleness resolution is key-based, not inferred** — see above.
 - **All stored embeddings are unit-normalized**, regardless of what a custom embedder returns — this keeps the sqlite-vec acceleration's Euclidean-to-cosine distance conversion exact for every embedder, not just the bundled ones.
+
+## Releasing
+
+Not yet published to PyPI. `.github/workflows/publish.yml` builds and publishes on every GitHub Release via [PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/) (no stored API token) — to cut a release, register this repo as a trusted publisher for the `jottermem` project on PyPI (environment name `pypi`, workflow `publish.yml`), then create a GitHub Release.
 
 ## License
 
