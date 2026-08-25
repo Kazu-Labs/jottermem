@@ -175,7 +175,7 @@ class Memory:
         include_superseded: bool = False,
     ) -> list[MemoryRecord]:
         ns = namespace or self.namespace
-        return self.store.list(
+        return self.store.list_records(
             ns, include_superseded=include_superseded, metadata_filter=filter
         )
 

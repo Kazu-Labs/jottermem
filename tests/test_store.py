@@ -52,8 +52,8 @@ def test_list_filters_by_namespace_and_metadata():
     store.insert(id="b", text="y", embedding=[1.0], namespace="alice", metadata={"topic": "food"})
     store.insert(id="c", text="z", embedding=[1.0], namespace="bob", metadata={"topic": "work"})
 
-    alice_records = store.list("alice")
+    alice_records = store.list_records("alice")
     assert {r.id for r in alice_records} == {"a", "b"}
 
-    work_records = store.list("alice", metadata_filter={"topic": "work"})
+    work_records = store.list_records("alice", metadata_filter={"topic": "work"})
     assert {r.id for r in work_records} == {"a"}

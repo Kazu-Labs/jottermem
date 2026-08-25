@@ -6,6 +6,7 @@ import time
 import warnings
 from array import array
 from pathlib import Path
+from typing import Any
 
 from ..models import MemoryRecord, MemoryStatus
 from ..similarity import l2_distance_to_cosine
@@ -194,11 +195,12 @@ class SQLiteStore:
             ),
         )
         self._conn.commit()
-        if self._vec_enabled:
+        if self._vec_enabled and cur.lastrowid is not None:
             self._vec_insert(cur.lastrowid, record, embedding)
         return record
 
     def _vec_insert(self, rowid: int, record: MemoryRecord, embedding: list[float]) -> None:
+        assert self._sqlite_vec is not None
         try:
             self._conn.execute(
                 f"INSERT INTO {_VEC_TABLE}(rowid, namespace, status, embedding) "
@@ -307,7 +309,7 @@ class SQLiteStore:
                 continue
             yield record, unpack_embedding(row["embedding"])
 
-    def list(
+    def list_records(
         self,
         namespace: str,
         include_superseded: bool = False,
@@ -337,8 +339,10 @@ class SQLiteStore:
             return None
         if k <= 0:
             return []
+        assert self._sqlite_vec is not None
 
         query = self._sqlite_vec.serialize_float32(embedding)
+        params: tuple[Any, ...]
         if include_superseded:
             sql = (
                 f"SELECT rowid, distance FROM {_VEC_TABLE} "
@@ -360,7 +364,7 @@ class SQLiteStore:
             self._vec_enabled = False
             return None
 
-        results = []
+        results: list[tuple[MemoryRecord, float]] = []
         for rowid, distance in rows:
             record_row = self._conn.execute(
                 "SELECT * FROM memories WHERE rowid = ?", (rowid,)
