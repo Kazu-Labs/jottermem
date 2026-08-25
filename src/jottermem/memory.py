@@ -6,8 +6,9 @@ from pathlib import Path
 from .embeddings import EmbeddingFunction, HashingEmbedder
 from .extraction import Extractor, SentenceExtractor
 from .models import MemoryRecord, RecallResult
-from .similarity import cosine, tokenize
+from .similarity import cosine
 from .storage import SQLiteStore
+from .text import tokenize
 
 DEFAULT_DEDUP_THRESHOLD = 0.92
 DEFAULT_KEYWORD_BOOST = 0.05
@@ -108,7 +109,7 @@ class Memory:
         """Hybrid semantic + keyword-overlap search over stored memories."""
         ns = namespace or self.namespace
         query_vec = self.embedder([query])[0]
-        query_tokens = tokenize(query)
+        query_tokens = set(tokenize(query))
 
         scored: list[RecallResult] = []
         for record, vec in self.store.iter_candidates(
@@ -116,7 +117,7 @@ class Memory:
         ):
             score = cosine(query_vec, vec)
             if self.keyword_boost and query_tokens:
-                text_tokens = tokenize(record.text)
+                text_tokens = set(tokenize(record.text))
                 overlap = len(query_tokens & text_tokens)
                 score += self.keyword_boost * overlap
             scored.append(RecallResult(memory=record, score=score))

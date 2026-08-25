@@ -118,8 +118,9 @@ Early / pre-alpha. Working today:
 - Hybrid recall (cosine similarity + keyword overlap boost)
 
 - `LLMExtractor` for provider-agnostic, LLM-backed atomic fact extraction
+- A [staleness benchmark](BENCHMARKS.md) showing 3/3 vs. 0/3 current-fact accuracy against a naive top-K baseline on a synthetic evolving-facts scenario, using the same embedder on both sides
 
-Roadmap: `sqlite-vec`-backed index as a pluggable accelerator once brute-force cosine scanning stops being enough, a published benchmark against naive top-K RAG on a standard long-term-memory dataset (LoCoMo-style). See [PRD.md](PRD.md) for the full plan and explicit non-goals (this is not trying to be Cognee's graph memory or Mem0 Platform's multi-tenant infra).
+Roadmap: `sqlite-vec`-backed index as a pluggable accelerator once brute-force cosine scanning stops being enough, a broader published benchmark against naive top-K RAG on a standard long-term-memory dataset (LoCoMo-style — the synthetic staleness benchmark above is a narrower first proof point, not a replacement for that). See [PRD.md](PRD.md) for the full plan and explicit non-goals (this is not trying to be Cognee's graph memory or Mem0 Platform's multi-tenant infra).
 
 ## Design notes / trade-offs
 

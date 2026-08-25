@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import math
-import re
 
-_TOKEN_RE = re.compile(r"[a-z0-9]+")
+from ..text import tokenize
 
 
 class HashingEmbedder:
@@ -31,7 +30,7 @@ class HashingEmbedder:
 
     def _embed_one(self, text: str) -> list[float]:
         vec = [0.0] * self.dim
-        for token in _TOKEN_RE.findall(text.lower()):
+        for token in tokenize(text):
             digest = hashlib.blake2b(token.encode("utf-8"), digest_size=8).digest()
             index = int.from_bytes(digest[:4], "little") % self.dim
             sign = 1.0 if digest[4] & 1 else -1.0
