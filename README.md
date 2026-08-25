@@ -1,6 +1,7 @@
 # jottermem
 
 [![CI](https://github.com/Kazu-Labs/jottermem/actions/workflows/ci.yml/badge.svg)](https://github.com/Kazu-Labs/jottermem/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/jottermem.svg)](https://pypi.org/project/jottermem/)
 
 A dead-simple, embeddable memory layer for AI apps — single file, zero infra, zero account. The SQLite of agent memory.
 
@@ -132,7 +133,7 @@ Early / pre-alpha. Working today:
 - Optional `sqlite-vec` acceleration (`pip install jottermem[sqlite-vec]`), used automatically when available and never required
 - Two [published benchmarks](BENCHMARKS.md): a synthetic staleness scenario (3/3 vs. 0/3 current-fact accuracy vs. naive top-K) and a real one on [LoCoMo](https://github.com/snap-research/locomo)'s single-hop QA set, where jottermem roughly **doubles** naive top-K's Recall@k (e.g. 17.2% vs. 8.8% at k=1) across 795 questions on real conversational data, using the same dependency-free embedder on both sides
 
-See [PRD.md](PRD.md) for the full plan and explicit non-goals (this is not trying to be Cognee's graph memory or Mem0 Platform's multi-tenant infra).
+Published on [PyPI](https://pypi.org/project/jottermem/). See [PRD.md](PRD.md) for the full plan and explicit non-goals (this is not trying to be Cognee's graph memory or Mem0 Platform's multi-tenant infra).
 
 ## Design notes / trade-offs
 
@@ -143,7 +144,7 @@ See [PRD.md](PRD.md) for the full plan and explicit non-goals (this is not tryin
 
 ## Releasing
 
-Not yet published to PyPI. `.github/workflows/publish.yml` builds and publishes on every GitHub Release via [PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/) (no stored API token) — to cut a release, register this repo as a trusted publisher for the `jottermem` project on PyPI (environment name `pypi`, workflow `publish.yml`), then create a GitHub Release.
+`.github/workflows/publish.yml` builds and publishes on every GitHub Release via [PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/) (no stored API token). To cut the next release: bump `version` in `pyproject.toml`, then create a GitHub Release with a matching tag.
 
 ## License
 
