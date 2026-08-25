@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import threading
 import time
 import warnings
 from array import array
@@ -96,6 +97,11 @@ class SQLiteStore:
     opt-in-by-availability (`use_sqlite_vec="auto"`, the default): it's used
     silently when possible and never breaks a plain `pip install jottermem`
     install when it isn't.
+
+    Safe to share across threads: the underlying sqlite3 connection is
+    opened with `check_same_thread=False` and every operation holds a lock,
+    so calls from a thread pool (an MCP server, a web framework's request
+    handlers) serialize correctly instead of raising or corrupting state.
     """
 
     def __init__(
@@ -105,7 +111,8 @@ class SQLiteStore:
         use_sqlite_vec: bool | str = "auto",
     ):
         self.path = str(path)
-        self._conn = sqlite3.connect(self.path)
+        self._lock = threading.Lock()
+        self._conn = sqlite3.connect(self.path, check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
         self._conn.commit()
@@ -175,32 +182,34 @@ class SQLiteStore:
             created_at=now,
             updated_at=now,
         )
-        cur = self._conn.execute(
-            """
-            INSERT INTO memories
-                (id, text, namespace, key, metadata, embedding, status,
-                 superseded_by, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                record.id,
-                record.text,
-                record.namespace,
-                record.key,
-                json.dumps(record.metadata),
-                pack_embedding(embedding),
-                record.status,
-                record.superseded_by,
-                record.created_at,
-                record.updated_at,
-            ),
-        )
-        self._conn.commit()
-        if self._vec_enabled and cur.lastrowid is not None:
-            self._vec_insert(cur.lastrowid, record, embedding)
+        with self._lock:
+            cur = self._conn.execute(
+                """
+                INSERT INTO memories
+                    (id, text, namespace, key, metadata, embedding, status,
+                     superseded_by, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record.id,
+                    record.text,
+                    record.namespace,
+                    record.key,
+                    json.dumps(record.metadata),
+                    pack_embedding(embedding),
+                    record.status,
+                    record.superseded_by,
+                    record.created_at,
+                    record.updated_at,
+                ),
+            )
+            self._conn.commit()
+            if self._vec_enabled and cur.lastrowid is not None:
+                self._vec_insert(cur.lastrowid, record, embedding)
         return record
 
     def _vec_insert(self, rowid: int, record: MemoryRecord, embedding: list[float]) -> None:
+        """Internal helper — only ever called from within insert()'s locked region."""
         assert self._sqlite_vec is not None
         try:
             self._conn.execute(
@@ -225,67 +234,73 @@ class SQLiteStore:
             self._vec_enabled = False
 
     def get(self, id: str) -> MemoryRecord | None:
-        row = self._conn.execute(
-            "SELECT * FROM memories WHERE id = ?", (id,)
-        ).fetchone()
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT * FROM memories WHERE id = ?", (id,)
+            ).fetchone()
         return _row_to_record(row) if row else None
 
     def touch(self, id: str) -> None:
-        self._conn.execute(
-            "UPDATE memories SET updated_at = ? WHERE id = ?", (time.time(), id)
-        )
-        self._conn.commit()
-
-    def set_key(self, id: str, key: str) -> None:
-        self._conn.execute(
-            "UPDATE memories SET key = ?, updated_at = ? WHERE id = ?",
-            (key, time.time(), id),
-        )
-        self._conn.commit()
-
-    def supersede(self, id: str, superseded_by: str) -> None:
-        self._conn.execute(
-            """
-            UPDATE memories
-            SET status = ?, superseded_by = ?, updated_at = ?
-            WHERE id = ?
-            """,
-            (MemoryStatus.SUPERSEDED, superseded_by, time.time(), id),
-        )
-        self._conn.commit()
-        if self._vec_enabled:
+        with self._lock:
             self._conn.execute(
-                f"UPDATE {_VEC_TABLE} SET status = ? WHERE rowid = "
-                "(SELECT rowid FROM memories WHERE id = ?)",
-                (MemoryStatus.SUPERSEDED, id),
+                "UPDATE memories SET updated_at = ? WHERE id = ?", (time.time(), id)
             )
             self._conn.commit()
 
-    def delete(self, id: str) -> bool:
-        rowid = None
-        if self._vec_enabled:
-            row = self._conn.execute(
-                "SELECT rowid FROM memories WHERE id = ?", (id,)
-            ).fetchone()
-            rowid = row[0] if row else None
-
-        cur = self._conn.execute("DELETE FROM memories WHERE id = ?", (id,))
-        self._conn.commit()
-        deleted = cur.rowcount > 0
-
-        if deleted and self._vec_enabled and rowid is not None:
-            self._conn.execute(f"DELETE FROM {_VEC_TABLE} WHERE rowid = ?", (rowid,))
+    def set_key(self, id: str, key: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                "UPDATE memories SET key = ?, updated_at = ? WHERE id = ?",
+                (key, time.time(), id),
+            )
             self._conn.commit()
+
+    def supersede(self, id: str, superseded_by: str) -> None:
+        with self._lock:
+            self._conn.execute(
+                """
+                UPDATE memories
+                SET status = ?, superseded_by = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (MemoryStatus.SUPERSEDED, superseded_by, time.time(), id),
+            )
+            self._conn.commit()
+            if self._vec_enabled:
+                self._conn.execute(
+                    f"UPDATE {_VEC_TABLE} SET status = ? WHERE rowid = "
+                    "(SELECT rowid FROM memories WHERE id = ?)",
+                    (MemoryStatus.SUPERSEDED, id),
+                )
+                self._conn.commit()
+
+    def delete(self, id: str) -> bool:
+        with self._lock:
+            rowid = None
+            if self._vec_enabled:
+                row = self._conn.execute(
+                    "SELECT rowid FROM memories WHERE id = ?", (id,)
+                ).fetchone()
+                rowid = row[0] if row else None
+
+            cur = self._conn.execute("DELETE FROM memories WHERE id = ?", (id,))
+            self._conn.commit()
+            deleted = cur.rowcount > 0
+
+            if deleted and self._vec_enabled and rowid is not None:
+                self._conn.execute(f"DELETE FROM {_VEC_TABLE} WHERE rowid = ?", (rowid,))
+                self._conn.commit()
         return deleted
 
     def find_active_by_key(self, namespace: str, key: str) -> MemoryRecord | None:
-        row = self._conn.execute(
-            """
-            SELECT * FROM memories
-            WHERE namespace = ? AND key = ? AND status = ?
-            """,
-            (namespace, key, MemoryStatus.ACTIVE),
-        ).fetchone()
+        with self._lock:
+            row = self._conn.execute(
+                """
+                SELECT * FROM memories
+                WHERE namespace = ? AND key = ? AND status = ?
+                """,
+                (namespace, key, MemoryStatus.ACTIVE),
+            ).fetchone()
         return _row_to_record(row) if row else None
 
     def iter_candidates(
@@ -294,16 +309,22 @@ class SQLiteStore:
         include_superseded: bool = False,
         metadata_filter: dict | None = None,
     ):
-        """Yield (MemoryRecord, embedding) pairs matching the scope filters."""
-        if include_superseded:
-            rows = self._conn.execute(
-                "SELECT * FROM memories WHERE namespace = ?", (namespace,)
-            )
-        else:
-            rows = self._conn.execute(
-                "SELECT * FROM memories WHERE namespace = ? AND status = ?",
-                (namespace, MemoryStatus.ACTIVE),
-            )
+        """Yield (MemoryRecord, embedding) pairs matching the scope filters.
+
+        Rows are fully fetched under the lock before yielding, so the lock
+        is held only for the query itself, not for however long the caller
+        takes to process each result.
+        """
+        with self._lock:
+            if include_superseded:
+                rows = self._conn.execute(
+                    "SELECT * FROM memories WHERE namespace = ?", (namespace,)
+                ).fetchall()
+            else:
+                rows = self._conn.execute(
+                    "SELECT * FROM memories WHERE namespace = ? AND status = ?",
+                    (namespace, MemoryStatus.ACTIVE),
+                ).fetchall()
         for row in rows:
             record = _row_to_record(row)
             if metadata_filter and not _matches(record.metadata, metadata_filter):
@@ -359,20 +380,21 @@ class SQLiteStore:
             )
             params = (query, k, namespace, MemoryStatus.ACTIVE)
 
-        try:
-            rows = self._conn.execute(sql, params).fetchall()
-        except sqlite3.OperationalError:
-            self._vec_enabled = False
-            return None
+        with self._lock:
+            try:
+                rows = self._conn.execute(sql, params).fetchall()
+            except sqlite3.OperationalError:
+                self._vec_enabled = False
+                return None
 
-        results: list[tuple[MemoryRecord, float]] = []
-        for rowid, distance in rows:
-            record_row = self._conn.execute(
-                "SELECT * FROM memories WHERE rowid = ?", (rowid,)
-            ).fetchone()
-            if record_row is None:
-                continue
-            results.append((_row_to_record(record_row), l2_distance_to_cosine(distance)))
+            results: list[tuple[MemoryRecord, float]] = []
+            for rowid, distance in rows:
+                record_row = self._conn.execute(
+                    "SELECT * FROM memories WHERE rowid = ?", (rowid,)
+                ).fetchone()
+                if record_row is None:
+                    continue
+                results.append((_row_to_record(record_row), l2_distance_to_cosine(distance)))
         return results
 
 
