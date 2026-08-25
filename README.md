@@ -16,7 +16,7 @@ for result in mem.recall("What color does the user like?", k=3):
     print(result.score, result.memory.text)
 ```
 
-No server, no Postgres, no Neo4j, no Docker Compose, no account. `pip install jottermem`, one file on disk, done.
+No server, no Postgres, no Neo4j, no Docker Compose, no account. `pip install jottermem`, one file on disk, done. See [examples/quickstart.py](examples/quickstart.py) for a longer runnable tour (dedup, key-based staleness, forget).
 
 ## Why
 

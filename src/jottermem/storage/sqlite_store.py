@@ -133,6 +133,13 @@ class SQLiteStore:
         )
         self._conn.commit()
 
+    def set_key(self, id: str, key: str) -> None:
+        self._conn.execute(
+            "UPDATE memories SET key = ?, updated_at = ? WHERE id = ?",
+            (key, time.time(), id),
+        )
+        self._conn.commit()
+
     def supersede(self, id: str, superseded_by: str) -> None:
         self._conn.execute(
             """

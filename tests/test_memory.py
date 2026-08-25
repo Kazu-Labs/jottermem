@@ -38,6 +38,26 @@ def test_key_based_supersession(memory):
     assert "Acme" in superseded.text
 
 
+def test_dedup_match_can_claim_a_key(memory):
+    """A fact stored without a key, then re-remembered with a key, should
+    have that key applied to the existing (deduped) record rather than
+    silently dropping it — otherwise a later same-key update wouldn't know
+    to supersede it."""
+    memory.remember("The user's favorite drink is coffee.")
+    memory.remember("The user's favorite drink is coffee.", key="drink")
+    memory.remember("The user's favorite drink is green tea now.", key="drink")
+
+    active = memory.list_memories()
+    assert len(active) == 1
+    assert "green tea" in active[0].text
+
+    everything = memory.list_memories(include_superseded=True)
+    assert len(everything) == 2
+    superseded = [r for r in everything if r.status == "superseded"][0]
+    assert "coffee" in superseded.text
+    assert superseded.key == "drink"
+
+
 def test_forget_removes_memory(memory):
     [record] = memory.remember("A one-off fact.")
     assert memory.forget(record.id) is True

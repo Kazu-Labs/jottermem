@@ -65,6 +65,12 @@ class Memory:
         namespace with the same key is marked superseded before the new
         fact is inserted. Use a stable key (e.g. `"employer"`) for facts
         that change over time so recall() only surfaces the current value.
+
+        Dedup and staleness compose: if a fact matches an existing memory
+        that was stored under a *different* key (or no key), passing a
+        `key` here claims it — the prior holder of that key is superseded
+        and the matched memory's key is updated — rather than silently
+        dropping the key because a duplicate was found first.
         """
         ns = namespace or self.namespace
         facts = self.extractor.extract(text)
@@ -76,15 +82,17 @@ class Memory:
             embedding = self.embedder([fact])[0]
             duplicate = self._find_duplicate(ns, embedding)
             if duplicate is not None:
+                if key is not None and duplicate.key != key:
+                    self._supersede_prior_key_holder(ns, duplicate.id, key)
+                    self.store.set_key(duplicate.id, key)
+                    duplicate.key = key
                 self.store.touch(duplicate.id)
                 results.append(duplicate)
                 continue
 
             new_id = uuid.uuid4().hex
             if key is not None:
-                existing = self.store.find_active_by_key(ns, key)
-                if existing is not None:
-                    self.store.supersede(existing.id, new_id)
+                self._supersede_prior_key_holder(ns, new_id, key)
 
             record = self.store.insert(
                 id=new_id,
@@ -97,6 +105,13 @@ class Memory:
             results.append(record)
 
         return results
+
+    def _supersede_prior_key_holder(
+        self, namespace: str, claimant_id: str, key: str
+    ) -> None:
+        existing = self.store.find_active_by_key(namespace, key)
+        if existing is not None and existing.id != claimant_id:
+            self.store.supersede(existing.id, superseded_by=claimant_id)
 
     def recall(
         self,
