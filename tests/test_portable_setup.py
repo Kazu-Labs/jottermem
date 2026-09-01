@@ -2,7 +2,13 @@ import json
 
 import pytest
 
-from jottermem.portable.setup import _find_drive_folders, _mcp_config_snippet, main, run_wizard
+from jottermem.portable.setup import (
+    _find_drive_folders,
+    _looks_drive_synced,
+    _mcp_config_snippet,
+    main,
+    run_wizard,
+)
 
 
 def test_run_wizard_local_backend_creates_folder_and_connect_files(tmp_path):
@@ -89,3 +95,49 @@ def test_choose_backend_prompts_when_not_given_via_flag(tmp_path, monkeypatch, c
     out = capsys.readouterr().out
     assert "Where should your memory folder live?" in out
     assert root == target
+
+
+def test_looks_drive_synced_true_for_detected_folder(tmp_path, monkeypatch):
+    monkeypatch.setattr("jottermem.portable.setup.Path.home", lambda: tmp_path)
+    drive_mount = tmp_path / "Library" / "CloudStorage" / "GoogleDrive-me@example.com" / "My Drive"
+    drive_mount.mkdir(parents=True)
+
+    assert _looks_drive_synced(drive_mount / "jottermem") is True
+
+
+def test_looks_drive_synced_true_for_cloud_storage_marker_in_path(tmp_path, monkeypatch):
+    monkeypatch.setattr("jottermem.portable.setup.Path.home", lambda: tmp_path)
+    path = tmp_path / "Library" / "CloudStorage" / "GoogleDrive-someone-else@example.com" / "jottermem"
+
+    assert _looks_drive_synced(path) is True
+
+
+def test_looks_drive_synced_false_for_unrelated_local_path(tmp_path, monkeypatch):
+    monkeypatch.setattr("jottermem.portable.setup.Path.home", lambda: tmp_path)
+    assert _looks_drive_synced(tmp_path / "not-drive" / "jottermem") is False
+
+
+def test_run_wizard_warns_when_drive_path_does_not_look_synced(tmp_path, capsys):
+    run_wizard(backend="drive", path=str(tmp_path / "not-drive" / "mem"))
+    out = capsys.readouterr().out
+    assert "doesn't look like it's inside a Google Drive-synced" in out
+
+
+def test_run_wizard_does_not_warn_for_local_backend(tmp_path, capsys):
+    run_wizard(backend="local", path=str(tmp_path / "mem"))
+    out = capsys.readouterr().out
+    assert "doesn't look like it's inside a Google Drive-synced" not in out
+
+
+def test_run_wizard_warns_when_mcp_server_not_installed(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr("shutil.which", lambda _name: None)
+    run_wizard(backend="local", path=str(tmp_path / "mem"))
+    out = capsys.readouterr().out
+    assert "isn't on your PATH yet" in out
+
+
+def test_run_wizard_no_install_warning_when_mcp_server_found(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr("shutil.which", lambda _name: "/usr/local/bin/jottermem-portable-mcp")
+    run_wizard(backend="local", path=str(tmp_path / "mem"))
+    out = capsys.readouterr().out
+    assert "isn't on your PATH yet" not in out

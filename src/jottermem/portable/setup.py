@@ -44,6 +44,23 @@ def _resolve_command(name: str) -> str:
     return shutil.which(name) or name
 
 
+def _looks_drive_synced(path: Path) -> bool:
+    """Best-effort check that `path` actually lives inside a Drive-synced
+    location, so choosing the Drive backend doesn't silently produce a
+    plain local folder that never syncs anywhere — an easy-to-miss failure
+    mode for the "your memory follows you across devices" promise, since
+    nothing else would catch a mistyped or non-synced path."""
+    resolved = path.resolve()
+    for folder in _find_drive_folders():
+        try:
+            resolved.relative_to(folder.resolve())
+            return True
+        except ValueError:
+            continue
+    markers = ("CloudStorage", "GoogleDrive-", "Google Drive")
+    return any(marker in part for part in resolved.parts for marker in markers)
+
+
 def _mcp_config_snippet(store_path: Path) -> dict:
     return {
         "mcpServers": {
@@ -181,6 +198,14 @@ def run_wizard(*, backend: str | None = None, path: str | None = None) -> Path:
         backend = _choose_backend()
 
     store_path = Path(path).expanduser() if path else _choose_path(backend)
+
+    if backend == "drive" and not _looks_drive_synced(store_path):
+        print(
+            f"\nWarning: {store_path} doesn't look like it's inside a Google Drive-synced\n"
+            "folder — double check the path, or this memory won't actually follow you\n"
+            "to other devices the way the Drive backend is supposed to. Proceeding anyway.\n"
+        )
+
     store = PortableStore(store_path)
     print(f"\nMemory folder ready at: {store.root}")
 
@@ -188,6 +213,13 @@ def run_wizard(*, backend: str | None = None, path: str | None = None) -> Path:
     print(f"Connection instructions written to: {connect_dir / 'CONNECT.md'}\n")
     print(_connect_markdown(store.root, backend))
     print("Tip: run `jottermem-app` any time to browse or hand-edit these files in your browser.\n")
+
+    if shutil.which("jottermem-portable-mcp") is None:
+        print(
+            "Note: `jottermem-portable-mcp` isn't on your PATH yet, so the config just\n"
+            "written won't work until you install it — run `pip install \"jottermem[mcp]\"`\n"
+            "(needs Python >=3.10), then restart whichever assistant you connected.\n"
+        )
 
     return store.root
 
