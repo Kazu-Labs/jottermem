@@ -77,6 +77,25 @@ def test_find_drive_folders_empty_when_none_present(tmp_path, monkeypatch):
     assert _find_drive_folders() == []
 
 
+def test_find_drive_folders_detects_flat_my_drive_folder(tmp_path, monkeypatch):
+    """Covers Windows/Linux Drive-for-Desktop "Mirror files" mode, and any
+    non-CloudStorage macOS setup, where the sync folder sits directly under
+    the home directory rather than under ~/Library/CloudStorage."""
+    monkeypatch.setattr("jottermem.portable.setup.Path.home", lambda: tmp_path)
+    my_drive = tmp_path / "My Drive"
+    my_drive.mkdir()
+
+    assert _find_drive_folders() == [my_drive]
+
+
+def test_find_drive_folders_detects_legacy_google_drive_folder(tmp_path, monkeypatch):
+    monkeypatch.setattr("jottermem.portable.setup.Path.home", lambda: tmp_path)
+    legacy = tmp_path / "Google Drive"
+    legacy.mkdir()
+
+    assert _find_drive_folders() == [legacy]
+
+
 def test_main_wires_cli_flags_to_run_wizard(tmp_path, monkeypatch):
     target = tmp_path / "mem"
     monkeypatch.setattr("sys.argv", ["jottermem-setup", "--backend", "local", "--path", str(target)])

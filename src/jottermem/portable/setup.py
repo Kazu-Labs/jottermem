@@ -26,7 +26,13 @@ def _prompt(question: str, default: str | None = None) -> str:
 
 
 def _find_drive_folders() -> list[Path]:
-    """Google Drive for Desktop's mount points on this machine, if any."""
+    """Google Drive for Desktop's mount points on this machine, if any.
+
+    `Path.home()` itself is cross-platform, so the two flat candidates
+    below (legacy "Backup and Sync" naming, and modern "Mirror files"
+    naming) get checked on Windows and Linux too, not just macOS — only
+    the `~/Library/CloudStorage/...` layout is actually Mac-specific.
+    """
     candidates = []
     cloud_storage = Path.home() / "Library" / "CloudStorage"
     if cloud_storage.is_dir():
@@ -34,9 +40,10 @@ def _find_drive_folders() -> list[Path]:
             if entry.name.startswith("GoogleDrive-"):
                 my_drive = entry / "My Drive"
                 candidates.append(my_drive if my_drive.is_dir() else entry)
-    legacy = Path.home() / "Google Drive"
-    if legacy.is_dir():
-        candidates.append(legacy)
+    for name in ("Google Drive", "My Drive"):
+        flat = Path.home() / name
+        if flat.is_dir() and flat not in candidates:
+            candidates.append(flat)
     return candidates
 
 
