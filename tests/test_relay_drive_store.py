@@ -45,13 +45,25 @@ class _FakeFiles:
         return _Exec(self._drive._update(fileId, media_body))
 
 
+class _FakeAbout:
+    def __init__(self, drive: "FakeDriveService"):
+        self._drive = drive
+
+    def get(self, fields: str) -> _Exec:
+        return _Exec({"user": {"emailAddress": self._drive.email}})
+
+
 class FakeDriveService:
-    def __init__(self) -> None:
+    def __init__(self, email: str | None = "me@example.com") -> None:
         self._files: dict[str, dict] = {}
         self._next_id = 1
+        self.email = email
 
     def files(self) -> _FakeFiles:
         return _FakeFiles(self)
+
+    def about(self) -> _FakeAbout:
+        return _FakeAbout(self)
 
     def _list(self, q: str) -> dict:
         name_match = _NAME_RE.search(q)
@@ -100,6 +112,18 @@ def fake_service(monkeypatch):
 def drive_store(fake_service):
     folder_id = DriveStore.get_or_create_folder("refresh", "client-id", "client-secret")
     return DriveStore("refresh", folder_id, "client-id", "client-secret")
+
+
+def test_get_account_email_returns_connected_address(fake_service):
+    assert DriveStore.get_account_email("refresh", "id", "secret") == "me@example.com"
+
+
+def test_get_account_email_returns_none_on_failure(monkeypatch):
+    def _broken_service(*a, **k):
+        raise RuntimeError("network down")
+
+    monkeypatch.setattr("jottermem.relay.drive_store._build_service", _broken_service)
+    assert DriveStore.get_account_email("refresh", "id", "secret") is None
 
 
 def test_get_or_create_folder_is_idempotent(fake_service):

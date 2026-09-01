@@ -82,6 +82,64 @@ def test_token_store_encrypts_refresh_token_at_rest(tmp_path):
     assert b"super-secret-refresh-token" not in raw
 
 
+def test_token_store_list_accounts(tmp_path):
+    from jottermem.relay.tokens import TokenStore
+
+    store = TokenStore(tmp_path / "tokens.db", secret_key="a-secret")
+    store.create(refresh_token="r1", folder_id="folder-1", email="a@example.com")
+    store.create(refresh_token="r2", folder_id="folder-2", email=None)
+
+    accounts = store.list_accounts()
+    assert len(accounts) == 2
+    assert accounts[0]["folder_id"] == "folder-1"
+    assert accounts[0]["email"] == "a@example.com"
+    assert accounts[1]["email"] is None
+
+
+def test_token_store_revoke(tmp_path):
+    from jottermem.relay.tokens import TokenStore
+
+    store = TokenStore(tmp_path / "tokens.db", secret_key="a-secret")
+    access_token = store.create(refresh_token="r1", folder_id="folder-1", email=None)
+
+    assert store.revoke(access_token) is True
+    assert store.get(access_token) is None
+    assert store.revoke(access_token) is False
+
+
+def test_admin_cli_list_and_revoke(tmp_path, monkeypatch, capsys):
+    from jottermem.relay.admin import main
+    from jottermem.relay.tokens import TokenStore
+
+    db_path = tmp_path / "tokens.db"
+    monkeypatch.setenv("RELAY_DB_PATH", str(db_path))
+    monkeypatch.setenv("RELAY_SECRET_KEY", "a-secret")
+
+    store = TokenStore(db_path, "a-secret")
+    access_token = store.create(refresh_token="r1", folder_id="folder-1", email="a@example.com")
+
+    monkeypatch.setattr("sys.argv", ["jottermem-relay-admin", "list"])
+    main()
+    out = capsys.readouterr().out
+    assert access_token in out
+    assert "a@example.com" in out
+
+    monkeypatch.setattr("sys.argv", ["jottermem-relay-admin", "revoke", access_token])
+    main()
+    assert "Revoked." in capsys.readouterr().out
+    assert store.get(access_token) is None
+
+
+def test_admin_cli_requires_secret_key(tmp_path, monkeypatch):
+    monkeypatch.delenv("RELAY_SECRET_KEY", raising=False)
+    monkeypatch.setattr("sys.argv", ["jottermem-relay-admin", "list"])
+
+    from jottermem.relay.admin import main
+
+    with pytest.raises(SystemExit):
+        main()
+
+
 @pytest.mark.skipif(sys.version_info < (3, 10), reason="mcp requires Python >=3.10")
 def test_app_boots_and_gates_mcp_endpoint(monkeypatch, tmp_path):
     pytest.importorskip("fastapi", reason="requires the optional 'relay' extra")

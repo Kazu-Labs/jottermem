@@ -31,6 +31,16 @@ Your refresh token is encrypted at rest (`RELAY_SECRET_KEY`) in a local
 SQLite file; the relay never stores memory content itself, only passing it
 through to/from Drive on each call.
 
+## Managing connected accounts
+
+There's no web UI for this — `jottermem-relay-admin`, run with the same
+`RELAY_DB_PATH` / `RELAY_SECRET_KEY` env vars the relay process uses:
+
+```bash
+jottermem-relay-admin list                   # every connected account, with email if known
+jottermem-relay-admin revoke <access-token>  # disconnect one — its token stops working immediately
+```
+
 ## What you need to provide
 
 ### 1. A Google Cloud OAuth app
@@ -106,9 +116,11 @@ than you are relying on it:
   `mcp.server.auth.provider.OAuthAuthorizationServerProvider` in front —
   effectively the relay acting as its own OAuth AS, internally delegating
   identity to Google.
-- **Token storage**: one SQLite file, no rotation or expiry, no admin UI to
-  revoke access. Fine for personal use; swap for a real database before
-  onboarding others.
+- **Token storage**: one SQLite file, no rotation or expiry. Revocation
+  exists (`jottermem-relay-admin revoke`) but only as a CLI against the raw
+  store, run by whoever holds `RELAY_SECRET_KEY` — fine for personal use,
+  swap for a real database and a real admin surface before onboarding
+  others.
 - **Single point of trust**: anyone who obtains a user's access token can
   read/write their memory folder. Treat `RELAY_SECRET_KEY` and the SQLite
   file (or its replacement) with the same care as any credential store.

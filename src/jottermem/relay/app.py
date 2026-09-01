@@ -152,7 +152,10 @@ def oauth_callback(request: Request) -> str:
     folder_id = DriveStore.get_or_create_folder(
         credentials.refresh_token, config.google_client_id, config.google_client_secret
     )
-    access_token = token_store.create(credentials.refresh_token, folder_id, email=None)
+    email = DriveStore.get_account_email(
+        credentials.refresh_token, config.google_client_id, config.google_client_secret
+    )
+    access_token = token_store.create(credentials.refresh_token, folder_id, email=email)
 
     return f"""
     <html><body style="font-family: sans-serif; max-width: 640px; margin: 40px auto;">

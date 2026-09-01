@@ -61,6 +61,20 @@ class DriveStore:
         )
         return folder["id"]
 
+    @classmethod
+    def get_account_email(cls, refresh_token: str, client_id: str, client_secret: str) -> str | None:
+        """Best-effort email address for the connected Google account, so
+        `jottermem-relay-admin list` can show something more useful than a
+        bare folder id. Purely cosmetic — if this fails for any reason
+        (including a future narrower scope than `drive.file`), the caller
+        should treat a None return as "unknown", not an error."""
+        try:
+            service = _build_service(refresh_token, client_id, client_secret)
+            about = service.about().get(fields="user(emailAddress)").execute()
+            return about.get("user", {}).get("emailAddress")
+        except Exception:
+            return None
+
     def _find_file(self, name: str) -> str | None:
         query = f"name = '{name}' and '{self.folder_id}' in parents and trashed = false"
         results = self._service.files().list(q=query, spaces="drive", fields="files(id)").execute()

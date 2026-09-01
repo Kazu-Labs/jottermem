@@ -63,3 +63,21 @@ class TokenStore:
             return None
         refresh_token = self._fernet.decrypt(row[0]).decode()
         return refresh_token, row[1]
+
+    def list_accounts(self) -> list[dict]:
+        """Every connected account, for `jottermem-relay-admin list`. Access
+        tokens come back in full, not masked — whoever can run this already
+        holds `RELAY_SECRET_KEY`, which decrypts every refresh token here
+        too, so masking the access token specifically wouldn't raise the
+        actual trust bar."""
+        rows = self._conn.execute(
+            "SELECT access_token, folder_id, email FROM accounts ORDER BY rowid"
+        ).fetchall()
+        return [{"access_token": r[0], "folder_id": r[1], "email": r[2]} for r in rows]
+
+    def revoke(self, access_token: str) -> bool:
+        """Deletes an account's record so its access token and refresh
+        token stop working. Returns False if no such token was found."""
+        cur = self._conn.execute("DELETE FROM accounts WHERE access_token = ?", (access_token,))
+        self._conn.commit()
+        return cur.rowcount > 0

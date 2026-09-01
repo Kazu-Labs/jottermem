@@ -43,6 +43,7 @@ jottermem-mcp = "jottermem.mcp_server:main"
 jottermem-setup = "jottermem.portable.setup:main"
 jottermem-portable-mcp = "jottermem.portable.mcp_server:main"
 jottermem-app = "jottermem.portable.app:main"
+jottermem-relay-admin = "jottermem.relay.admin:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/jottermem"]
