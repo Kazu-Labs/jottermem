@@ -1,3 +1,4 @@
+import dataclasses
 import threading
 import urllib.error
 import urllib.parse
@@ -8,6 +9,12 @@ import pytest
 from jottermem.portable.app import serve
 
 
+@dataclasses.dataclass
+class _Server:
+    url: str
+    csrf: str
+
+
 @pytest.fixture
 def server(tmp_path):
     srv = serve(str(tmp_path / "mem"), port=0, open_browser=False)
@@ -15,7 +22,7 @@ def server(tmp_path):
     thread.start()
     base_url = f"http://127.0.0.1:{srv.server_address[1]}"
     try:
-        yield base_url
+        yield _Server(url=base_url, csrf=srv.csrf_token)
     finally:
         srv.shutdown()
         srv.server_close()
@@ -34,45 +41,71 @@ def _post(url: str, fields: dict[str, str]) -> tuple[int, str]:
 
 
 def test_index_with_no_memories(server):
-    status, body = _get(server + "/")
+    status, body = _get(server.url + "/")
     assert status == 200
     assert "No memories yet" in body
 
 
 def test_add_fact_creates_topic_and_redirects_to_index(server):
-    status, body = _post(server + "/add", {"topic": "work", "text": "Works at Acme Corp."})
+    status, body = _post(
+        server.url + "/add", {"topic": "work", "text": "Works at Acme Corp.", "csrf_token": server.csrf}
+    )
     assert status == 200
     assert "work" in body
     assert "1" in body  # fact count
 
 
 def test_topic_page_shows_saved_content(server):
-    _post(server + "/add", {"topic": "work", "text": "Works at Acme Corp."})
-    status, body = _get(server + "/topic/work")
+    _post(server.url + "/add", {"topic": "work", "text": "Works at Acme Corp.", "csrf_token": server.csrf})
+    status, body = _get(server.url + "/topic/work")
     assert status == 200
     assert "Works at Acme Corp." in body
 
 
 def test_editing_topic_content_updates_file_and_reindexes(server, tmp_path):
-    _post(server + "/add", {"topic": "work", "text": "Original fact."})
+    _post(server.url + "/add", {"topic": "work", "text": "Original fact.", "csrf_token": server.csrf})
     new_content = "# work\n\n- [2026-01-01T00:00:00Z] Edited fact one.\n- [2026-01-01T00:00:00Z] Edited fact two.\n"
 
-    status, body = _post(server + "/topic/work/save", {"content": new_content})
+    status, body = _post(server.url + "/topic/work/save", {"content": new_content, "csrf_token": server.csrf})
     assert status == 200
     assert "Edited fact one." in body
 
-    index_status, index_body = _get(server + "/")
+    index_status, index_body = _get(server.url + "/")
     assert "2" in index_body  # reindexed fact count
 
 
 def test_unknown_path_returns_404(server):
     with pytest.raises(urllib.error.HTTPError) as exc_info:
-        _get(server + "/nonexistent")
+        _get(server.url + "/nonexistent")
     assert exc_info.value.code == 404
 
 
 def test_html_in_memory_content_is_escaped(server):
-    _post(server + "/add", {"topic": "work", "text": "<script>alert(1)</script>"})
-    status, body = _get(server + "/topic/work")
+    _post(
+        server.url + "/add",
+        {"topic": "work", "text": "<script>alert(1)</script>", "csrf_token": server.csrf},
+    )
+    status, body = _get(server.url + "/topic/work")
     assert "<script>alert(1)</script>" not in body
     assert "&lt;script&gt;" in body
+
+
+def test_post_without_csrf_token_is_rejected(server, tmp_path):
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        _post(server.url + "/add", {"topic": "work", "text": "Injected via CSRF."})
+    assert exc_info.value.code == 403
+
+    # nothing should have been written
+    status, body = _get(server.url + "/")
+    assert "No memories yet" in body
+
+
+def test_post_with_wrong_csrf_token_is_rejected(server):
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        _post(server.url + "/add", {"topic": "work", "text": "Injected.", "csrf_token": "wrong-token"})
+    assert exc_info.value.code == 403
+
+
+def test_index_page_embeds_csrf_token_in_add_form(server):
+    _, body = _get(server.url + "/")
+    assert f"value='{server.csrf}'" in body

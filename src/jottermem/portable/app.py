@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import html
+import secrets
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -56,7 +57,13 @@ def _not_found() -> str:
     return _layout("Not found", "<p>Not found. <a href='/'>Back</a></p>")
 
 
-def make_handler(store: PortableStore) -> type[BaseHTTPRequestHandler]:
+def make_handler(store: PortableStore, csrf_token: str) -> type[BaseHTTPRequestHandler]:
+    """`csrf_token` is a per-run secret embedded in every form this page
+    renders and required on every POST. Without it, any other website open
+    in the same browser while this server is running could silently write
+    into the memory folder by submitting a hidden form to it — this server
+    has no other auth, since it's meant to be a zero-setup local tool."""
+
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, format: str, *args: object) -> None:  # noqa: A002
             pass  # quiet by default -- this is a local viewer, not a service
@@ -91,15 +98,21 @@ def make_handler(store: PortableStore) -> type[BaseHTTPRequestHandler]:
 
         def do_POST(self) -> None:  # noqa: N802
             path = urlparse(self.path).path
+            fields = self._read_form()
+            if not secrets.compare_digest(fields.get("csrf_token", ""), csrf_token):
+                self._send_html(
+                    _layout("Forbidden", "<p>Missing or invalid CSRF token. Reload the page and try again.</p>"),
+                    status=403,
+                )
+                return
+
             if path == "/add":
-                fields = self._read_form()
                 topic, text = fields.get("topic", "").strip(), fields.get("text", "").strip()
                 if topic and text:
                     store.write(topic, text)
                 self._redirect("/")
             elif path.startswith("/topic/") and path.endswith("/save"):
                 slug = path[len("/topic/") : -len("/save")]
-                fields = self._read_form()
                 store.overwrite(slug, fields.get("content", ""))
                 self._redirect(f"/topic/{slug}")
             else:
@@ -125,6 +138,7 @@ def make_handler(store: PortableStore) -> type[BaseHTTPRequestHandler]:
                 f"{table}"
                 "<h2>Add a fact</h2>"
                 "<form class='add-form' method='post' action='/add'>"
+                f"<input type='hidden' name='csrf_token' value='{csrf_token}'>"
                 "<input type='text' name='topic' placeholder='topic (e.g. work)' required>"
                 "<input type='text' name='text' placeholder='fact' required>"
                 "<button type='submit'>Save</button>"
@@ -137,6 +151,7 @@ def make_handler(store: PortableStore) -> type[BaseHTTPRequestHandler]:
             body = (
                 f"<h2>{html.escape(slug)}</h2>"
                 f"<form method='post' action='/topic/{html.escape(slug)}/save'>"
+                f"<input type='hidden' name='csrf_token' value='{csrf_token}'>"
                 f"<textarea name='content' rows='20' style='width:100%; font-family: monospace;'>"
                 f"{html.escape(content)}</textarea><br><br>"
                 "<button type='submit'>Save</button>"
@@ -148,9 +163,19 @@ def make_handler(store: PortableStore) -> type[BaseHTTPRequestHandler]:
     return Handler
 
 
-def serve(path: str, port: int = DEFAULT_PORT, *, open_browser: bool = True) -> ThreadingHTTPServer:
+class Server(ThreadingHTTPServer):
+    """`ThreadingHTTPServer` with the per-run CSRF token attached, mainly
+    so callers (tests included) can read it without scraping rendered
+    HTML."""
+
+    csrf_token: str
+
+
+def serve(path: str, port: int = DEFAULT_PORT, *, open_browser: bool = True) -> Server:
     store = PortableStore(path)
-    server = ThreadingHTTPServer(("127.0.0.1", port), make_handler(store))
+    csrf_token = secrets.token_urlsafe(16)
+    server = Server(("127.0.0.1", port), make_handler(store, csrf_token))
+    server.csrf_token = csrf_token
     url = f"http://127.0.0.1:{server.server_address[1]}/"
     print(f"jottermem-app: browsing {store.root}")
     print(f"  -> {url}  (Ctrl+C to stop)")
