@@ -144,6 +144,32 @@ Example client config (Claude Code, `.mcp.json` or similar):
 
 The store is safe to call from multiple threads — MCP's SDK runs sync tool handlers in a worker-thread pool, so `SQLiteStore` opens with `check_same_thread=False` and serializes access with a lock rather than assuming single-threaded use.
 
+## A portable memory folder for your AI assistants
+
+Everything above is `jottermem` the embeddable library — a single SQLite
+file, meant for a developer wiring memory into their own app. There's a
+separate, simpler layer on top for a different use case: a memory folder
+*you* set up once and point Claude, ChatGPT, and other AI assistants at, so
+they share context instead of each starting from zero. It stores memory as
+plain markdown files (one per topic) you can open and hand-edit — not the
+SQLite/vector engine above.
+
+```bash
+pip install "jottermem[mcp]"
+jottermem-setup
+```
+
+The wizard asks whether your memory folder should live locally or inside
+your own Google Drive, creates it, and writes ready-to-use connection
+config for Claude Desktop, Claude Code, and any other MCP-aware client —
+plus instructions for ChatGPT, which needs the separate `jottermem-relay`
+service (see [`src/jottermem/relay/README.md`](src/jottermem/relay/README.md))
+since its custom connectors can only reach a remote HTTPS server, not a
+local one.
+
+See [`jottermem-prd.md`](jottermem-prd.md) for the full product plan behind
+this layer, including the ChatGPT/Drive architecture tradeoffs.
+
 ## Status
 
 Early / pre-alpha. Working today:

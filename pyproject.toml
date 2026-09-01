@@ -24,6 +24,14 @@ dependencies = []
 sentence-transformers = ["sentence-transformers>=2.2.0"]
 sqlite-vec = ["sqlite-vec>=0.1.0"]
 mcp = ["mcp>=2.0.0"]
+relay = [
+    "fastapi>=0.110.0",
+    "uvicorn>=0.29.0",
+    "mcp>=2.0.0",
+    "google-auth-oauthlib>=1.2.0",
+    "google-api-python-client>=2.100.0",
+    "cryptography>=42.0.0",
+]
 dev = ["pytest>=8.0.0", "pytest-cov>=5.0.0", "sqlite-vec>=0.1.0", "mypy>=1.10.0"]
 
 [project.urls]
@@ -32,6 +40,8 @@ Issues = "https://github.com/Kazu-Labs/jottermem/issues"
 
 [project.scripts]
 jottermem-mcp = "jottermem.mcp_server:main"
+jottermem-setup = "jottermem.portable.setup:main"
+jottermem-portable-mcp = "jottermem.portable.mcp_server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/jottermem"]
@@ -45,5 +55,5 @@ warn_unused_ignores = true
 warn_redundant_casts = true
 
 [[tool.mypy.overrides]]
-module = ["sentence_transformers.*", "sqlite_vec.*", "mcp.*"]
+module = ["sentence_transformers.*", "sqlite_vec.*", "mcp.*", "googleapiclient.*", "google_auth_oauthlib.*", "google.*"]
 ignore_missing_imports = true
