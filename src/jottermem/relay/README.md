@@ -70,13 +70,28 @@ the repo.
 
 ### 4. Install and run
 
+Either directly:
+
 ```bash
 pip install "jottermem[relay]"
 uvicorn jottermem.relay.app:app --host 0.0.0.0 --port 8000
 ```
 
-Point your reverse proxy / hosting platform's HTTPS front door at that
-process, matching `RELAY_BASE_URL`.
+or with the included `Dockerfile`, built from the repo root so it can see
+`pyproject.toml`:
+
+```bash
+docker build -f src/jottermem/relay/Dockerfile -t jottermem-relay .
+docker run -p 8000:8000 --env-file .env.relay jottermem-relay
+```
+
+(`.env.relay` holding the four variables above, in `KEY=value` lines —
+don't commit that file.)
+
+Either way, point your reverse proxy / hosting platform's HTTPS front door
+at port 8000, matching `RELAY_BASE_URL`. The Dockerfile is written to work
+as-is on any host that runs an arbitrary container behind HTTPS (Fly.io,
+Render, Railway, Cloud Run, a VPS — nothing here assumes a specific one).
 
 ## Before a real (multi-user, public) launch
 
