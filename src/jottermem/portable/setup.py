@@ -187,6 +187,7 @@ def run_wizard(*, backend: str | None = None, path: str | None = None) -> Path:
     connect_dir = _write_connect_files(store, backend)
     print(f"Connection instructions written to: {connect_dir / 'CONNECT.md'}\n")
     print(_connect_markdown(store.root, backend))
+    print("Tip: run `jottermem-app` any time to browse or hand-edit these files in your browser.\n")
 
     return store.root
 

@@ -10,6 +10,7 @@ from .format import INDEX_FILENAME, INDEX_VERSION, append_fact, fact_texts, new_
 @dataclass
 class TopicInfo:
     topic: str
+    slug: str
     file: str
     updated: str
     count: int
@@ -88,6 +89,7 @@ class PortableStore:
         return [
             TopicInfo(
                 topic=info.get("topic", slug),
+                slug=slug,
                 file=info["file"],
                 updated=info["updated"],
                 count=info.get("count", 0),
@@ -100,7 +102,7 @@ class PortableStore:
         if not query_lower:
             return []
 
-        slugs = [slugify(topic)] if topic else [t.file[:-3] for t in self.list_topics()]
+        slugs = [slugify(topic)] if topic else [t.slug for t in self.list_topics()]
         hits: list[SearchHit] = []
         for slug in slugs:
             path = self.root / f"{slug}.md"
@@ -111,3 +113,24 @@ class PortableStore:
                 if stripped.startswith("-") and query_lower in stripped.lower():
                     hits.append(SearchHit(topic=slug, line=stripped))
         return hits
+
+    def overwrite(self, topic: str, content: str) -> None:
+        """Replace a topic file's full markdown content verbatim — e.g.
+        after hand-editing in `jottermem-app` — and refresh its index entry
+        (fact count, updated time) to match what the new content holds."""
+        slug = slugify(topic)
+        path = self.root / f"{slug}.md"
+        if not content.endswith("\n"):
+            content += "\n"
+        path.write_text(content)
+
+        index = self._read_index()
+        topics = index.setdefault("topics", {})
+        existing_name = topics.get(slug, {}).get("topic", topic)
+        topics[slug] = {
+            "file": path.name,
+            "topic": existing_name,
+            "updated": now(),
+            "count": len(fact_texts(content)),
+        }
+        self._write_index(index)

@@ -127,6 +127,7 @@ class DriveStore:
         return [
             {
                 "topic": info.get("topic", slug),
+                "slug": slug,
                 "file": info["file"],
                 "updated": info["updated"],
                 "count": info.get("count", 0),
@@ -139,7 +140,7 @@ class DriveStore:
         if not query_lower:
             return []
 
-        slugs = [slugify(topic)] if topic else [t["file"][:-3] for t in self.list_topics()]
+        slugs = [slugify(topic)] if topic else [t["slug"] for t in self.list_topics()]
         hits = []
         for slug in slugs:
             file_id = self._find_file(f"{slug}.md")

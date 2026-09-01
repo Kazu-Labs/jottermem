@@ -167,6 +167,11 @@ service (see [`src/jottermem/relay/README.md`](src/jottermem/relay/README.md))
 since its custom connectors can only reach a remote HTTPS server, not a
 local one.
 
+Run `jottermem-app` any time afterward to open the folder in a local
+browser view — see what's stored, hand-edit a topic, or add a fact without
+touching a text editor. It's a plain stdlib web server bound to
+`127.0.0.1`, no extra dependency beyond `jottermem` itself.
+
 See [`jottermem-prd.md`](jottermem-prd.md) for the full product plan behind
 this layer, including the ChatGPT/Drive architecture tradeoffs.
 

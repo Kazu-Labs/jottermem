@@ -42,6 +42,7 @@ Issues = "https://github.com/Kazu-Labs/jottermem/issues"
 jottermem-mcp = "jottermem.mcp_server:main"
 jottermem-setup = "jottermem.portable.setup:main"
 jottermem-portable-mcp = "jottermem.portable.mcp_server:main"
+jottermem-app = "jottermem.portable.app:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/jottermem"]
