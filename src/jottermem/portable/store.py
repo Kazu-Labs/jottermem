@@ -134,3 +134,19 @@ class PortableStore:
             "count": len(fact_texts(content)),
         }
         self._write_index(index)
+
+    def delete_topic(self, topic: str) -> bool:
+        """Remove a topic entirely: its markdown file and its index entry.
+        Returns False if the topic didn't exist."""
+        slug = slugify(topic)
+        path = self.root / f"{slug}.md"
+        index = self._read_index()
+        topics = index.get("topics", {})
+
+        if not path.exists() and slug not in topics:
+            return False
+
+        path.unlink(missing_ok=True)
+        topics.pop(slug, None)
+        self._write_index(index)
+        return True

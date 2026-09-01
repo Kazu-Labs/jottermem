@@ -115,6 +115,10 @@ def make_handler(store: PortableStore, csrf_token: str) -> type[BaseHTTPRequestH
                 slug = path[len("/topic/") : -len("/save")]
                 store.overwrite(slug, fields.get("content", ""))
                 self._redirect(f"/topic/{slug}")
+            elif path.startswith("/topic/") and path.endswith("/delete"):
+                slug = path[len("/topic/") : -len("/delete")]
+                store.delete_topic(slug)
+                self._redirect("/")
             else:
                 self._send_html(_not_found(), status=404)
 
@@ -155,6 +159,13 @@ def make_handler(store: PortableStore, csrf_token: str) -> type[BaseHTTPRequestH
                 f"<textarea name='content' rows='20' style='width:100%; font-family: monospace;'>"
                 f"{html.escape(content)}</textarea><br><br>"
                 "<button type='submit'>Save</button>"
+                "</form>"
+                f"<form method='post' action='/topic/{html.escape(slug)}/delete' "
+                f"onsubmit=\"return confirm('Delete the {html.escape(slug)} topic entirely?')\" "
+                "style='margin-top: 24px;'>"
+                f"<input type='hidden' name='csrf_token' value='{csrf_token}'>"
+                "<button type='submit' style='background: #b3261e; border-color: #b3261e;'>"
+                "Delete this topic</button>"
                 "</form>"
                 "<p><a href='/'>&larr; back</a></p>"
             )

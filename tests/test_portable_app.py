@@ -109,3 +109,28 @@ def test_post_with_wrong_csrf_token_is_rejected(server):
 def test_index_page_embeds_csrf_token_in_add_form(server):
     _, body = _get(server.url + "/")
     assert f"value='{server.csrf}'" in body
+
+
+def test_delete_topic_removes_it(server):
+    _post(server.url + "/add", {"topic": "work", "text": "A fact.", "csrf_token": server.csrf})
+
+    status, body = _post(server.url + "/topic/work/delete", {"csrf_token": server.csrf})
+    assert status == 200
+    assert "No memories yet" in body
+
+    # topic page still renders (no crash) but is empty now
+    status, body = _get(server.url + "/topic/work")
+    assert status == 200
+    assert "A fact." not in body
+
+
+def test_delete_topic_without_csrf_token_is_rejected(server):
+    _post(server.url + "/add", {"topic": "work", "text": "A fact.", "csrf_token": server.csrf})
+
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        _post(server.url + "/topic/work/delete", {})
+    assert exc_info.value.code == 403
+
+    # topic should still exist
+    status, body = _get(server.url + "/topic/work")
+    assert "A fact." in body

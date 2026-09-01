@@ -86,3 +86,35 @@ def test_reopening_store_sees_prior_writes(tmp_path):
     PortableStore(root).write("work", "Persisted fact.")
     reopened = PortableStore(root)
     assert "Persisted fact." in reopened.read("work")
+
+
+def test_overwrite_replaces_content_and_reindexes(store):
+    store.write("work", "Original fact.")
+    store.overwrite("work", "# work\n\n- [2026-01-01T00:00:00Z] Edited fact.\n")
+
+    assert "Edited fact." in store.read("work")
+    assert "Original fact." not in store.read("work")
+    assert store.list_topics()[0].count == 1
+
+
+def test_delete_topic_removes_file_and_index_entry(store):
+    store.write("work", "A fact.")
+    assert (store.root / "work.md").exists()
+
+    assert store.delete_topic("work") is True
+    assert not (store.root / "work.md").exists()
+    assert store.list_topics() == []
+    assert store.read("work") is None
+
+
+def test_delete_topic_returns_false_when_missing(store):
+    assert store.delete_topic("nonexistent") is False
+
+
+def test_delete_topic_does_not_affect_other_topics(store):
+    store.write("work", "Fact one.")
+    store.write("preferences", "Fact two.")
+
+    store.delete_topic("work")
+
+    assert {t.topic for t in store.list_topics()} == {"preferences"}
