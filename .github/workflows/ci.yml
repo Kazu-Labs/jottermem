@@ -29,6 +29,6 @@ jobs:
         run: python -m pytest -v tests/test_mcp_server.py tests/test_portable_mcp_server.py
       - name: Run relay tests
         if: matrix.python-version != '3.9'
-        run: python -m pytest -v tests/test_relay.py
+        run: python -m pytest -v tests/test_relay.py tests/test_relay_drive_store.py
       - run: python -m pytest -q
       - run: mypy src/jottermem
