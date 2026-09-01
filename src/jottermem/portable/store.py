@@ -150,3 +150,31 @@ class PortableStore:
         topics.pop(slug, None)
         self._write_index(index)
         return True
+
+    def rename_topic(self, topic: str, new_name: str) -> bool:
+        """Rename a topic — e.g. to fix a typo like "wrok" without losing
+        its facts to a delete-and-recreate. Returns False (no-op) if the
+        source topic doesn't exist, the new name is the same topic, or a
+        *different* topic already owns the destination name — renaming
+        never silently merges two topics together."""
+        old_slug = slugify(topic)
+        new_slug = slugify(new_name)
+        if old_slug == new_slug:
+            return False
+
+        index = self._read_index()
+        topics = index.get("topics", {})
+        if old_slug not in topics or new_slug in topics:
+            return False
+
+        old_path = self.root / f"{old_slug}.md"
+        new_path = self.root / f"{new_slug}.md"
+        if old_path.exists():
+            old_path.rename(new_path)
+
+        entry = topics.pop(old_slug)
+        entry["file"] = new_path.name
+        entry["topic"] = new_name
+        topics[new_slug] = entry
+        self._write_index(index)
+        return True

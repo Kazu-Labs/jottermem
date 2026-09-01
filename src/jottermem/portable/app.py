@@ -19,6 +19,7 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+from .format import slugify
 from .mcp_server import DEFAULT_PATH, PATH_ENV
 from .store import PortableStore
 
@@ -38,8 +39,11 @@ _STYLE = """
   button { padding: 6px 14px; border: 1px solid #333; border-radius: 4px;
            background: #1a1a1a; color: white; cursor: pointer; }
   .path { color: #666; font-size: 0.85rem; word-break: break-all; }
-  form.add-form { display: flex; gap: 8px; margin-top: 8px; }
+  form.add-form, form.search-form, form.rename-form { display: flex; gap: 8px; margin-top: 8px; }
   form.add-form input[name=text] { flex: 1; }
+  form.search-form input[name=q] { flex: 1; }
+  .hit { padding: 8px 0; border-bottom: 1px solid #e5e5e5; }
+  .hit a { font-size: 0.85rem; color: #666; text-decoration: none; }
 </style>
 """
 
@@ -88,11 +92,14 @@ def make_handler(store: PortableStore, csrf_token: str) -> type[BaseHTTPRequestH
             return {k: v[0] for k, v in parsed.items()}
 
         def do_GET(self) -> None:  # noqa: N802
-            path = urlparse(self.path).path
-            if path == "/":
+            parsed = urlparse(self.path)
+            if parsed.path == "/":
                 self._send_html(self._render_index())
-            elif path.startswith("/topic/"):
-                self._send_html(self._render_topic(path[len("/topic/") :]))
+            elif parsed.path == "/search":
+                query = parse_qs(parsed.query).get("q", [""])[0]
+                self._send_html(self._render_search(query))
+            elif parsed.path.startswith("/topic/"):
+                self._send_html(self._render_topic(parsed.path[len("/topic/") :]))
             else:
                 self._send_html(_not_found(), status=404)
 
@@ -119,6 +126,14 @@ def make_handler(store: PortableStore, csrf_token: str) -> type[BaseHTTPRequestH
                 slug = path[len("/topic/") : -len("/delete")]
                 store.delete_topic(slug)
                 self._redirect("/")
+            elif path.startswith("/topic/") and path.endswith("/rename"):
+                slug = path[len("/topic/") : -len("/rename")]
+                new_name = fields.get("new_name", "").strip()
+                destination = slugify(new_name) if new_name else slug
+                if new_name and store.rename_topic(slug, new_name):
+                    self._redirect(f"/topic/{destination}")
+                else:
+                    self._redirect(f"/topic/{slug}")
             else:
                 self._send_html(_not_found(), status=404)
 
@@ -139,6 +154,10 @@ def make_handler(store: PortableStore, csrf_token: str) -> type[BaseHTTPRequestH
 
             body = (
                 f"<p class='path'>{html.escape(str(store.root))}</p>"
+                "<form class='search-form' method='get' action='/search'>"
+                "<input type='text' name='q' placeholder='Search your memory' required>"
+                "<button type='submit'>Search</button>"
+                "</form>"
                 f"{table}"
                 "<h2>Add a fact</h2>"
                 "<form class='add-form' method='post' action='/add'>"
@@ -150,6 +169,29 @@ def make_handler(store: PortableStore, csrf_token: str) -> type[BaseHTTPRequestH
             )
             return _layout("jottermem", body)
 
+        def _render_search(self, query: str) -> str:
+            hits = store.search(query) if query else []
+            if query and hits:
+                results = "".join(
+                    f"<div class='hit'><p>{html.escape(hit.line)}</p>"
+                    f"<a href='/topic/{html.escape(hit.topic)}'>in {html.escape(hit.topic)} &rarr;</a></div>"
+                    for hit in hits
+                )
+            elif query:
+                results = "<p>No matches.</p>"
+            else:
+                results = "<p>Enter a search term.</p>"
+
+            body = (
+                "<form class='search-form' method='get' action='/search'>"
+                f"<input type='text' name='q' value='{html.escape(query)}' placeholder='Search your memory'>"
+                "<button type='submit'>Search</button>"
+                "</form>"
+                f"<h2>Results for &ldquo;{html.escape(query)}&rdquo;</h2>{results}"
+                "<p><a href='/'>&larr; back</a></p>"
+            )
+            return _layout(f"Search: {query}" if query else "Search", body)
+
         def _render_topic(self, slug: str) -> str:
             content = store.read(slug) or ""
             body = (
@@ -159,6 +201,12 @@ def make_handler(store: PortableStore, csrf_token: str) -> type[BaseHTTPRequestH
                 f"<textarea name='content' rows='20' style='width:100%; font-family: monospace;'>"
                 f"{html.escape(content)}</textarea><br><br>"
                 "<button type='submit'>Save</button>"
+                "</form>"
+                f"<form class='rename-form' method='post' action='/topic/{html.escape(slug)}/rename' "
+                "style='margin-top: 16px;'>"
+                f"<input type='hidden' name='csrf_token' value='{csrf_token}'>"
+                "<input type='text' name='new_name' placeholder='rename to...' required>"
+                "<button type='submit'>Rename</button>"
                 "</form>"
                 f"<form method='post' action='/topic/{html.escape(slug)}/delete' "
                 f"onsubmit=\"return confirm('Delete the {html.escape(slug)} topic entirely?')\" "

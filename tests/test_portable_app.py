@@ -134,3 +134,63 @@ def test_delete_topic_without_csrf_token_is_rejected(server):
     # topic should still exist
     status, body = _get(server.url + "/topic/work")
     assert "A fact." in body
+
+
+def test_search_finds_matching_fact(server):
+    _post(server.url + "/add", {"topic": "work", "text": "Works at Acme Corp.", "csrf_token": server.csrf})
+
+    status, body = _get(server.url + "/search?" + urllib.parse.urlencode({"q": "Acme"}))
+    assert status == 200
+    assert "Acme Corp" in body
+    assert "in work" in body
+
+
+def test_search_with_no_matches(server):
+    _post(server.url + "/add", {"topic": "work", "text": "Works at Acme Corp.", "csrf_token": server.csrf})
+
+    status, body = _get(server.url + "/search?" + urllib.parse.urlencode({"q": "nonexistent"}))
+    assert status == 200
+    assert "No matches." in body
+
+
+def test_search_with_empty_query(server):
+    status, body = _get(server.url + "/search")
+    assert status == 200
+    assert "Enter a search term." in body
+
+
+def test_rename_topic_moves_content_to_new_slug(server):
+    _post(server.url + "/add", {"topic": "wrok", "text": "A fact.", "csrf_token": server.csrf})
+
+    status, body = _post(
+        server.url + "/topic/wrok/rename", {"new_name": "work", "csrf_token": server.csrf}
+    )
+    assert status == 200
+    assert "A fact." in body  # landed on /topic/work, which shows it
+
+    status, index_body = _get(server.url + "/")
+    assert "wrok" not in index_body
+    assert "work" in index_body
+
+
+def test_rename_topic_without_csrf_token_is_rejected(server):
+    _post(server.url + "/add", {"topic": "wrok", "text": "A fact.", "csrf_token": server.csrf})
+
+    with pytest.raises(urllib.error.HTTPError) as exc_info:
+        _post(server.url + "/topic/wrok/rename", {"new_name": "work"})
+    assert exc_info.value.code == 403
+
+    status, body = _get(server.url + "/topic/wrok")
+    assert "A fact." in body
+
+
+def test_rename_topic_onto_existing_topic_is_a_no_op(server):
+    _post(server.url + "/add", {"topic": "work", "text": "Work fact.", "csrf_token": server.csrf})
+    _post(server.url + "/add", {"topic": "preferences", "text": "Prefs fact.", "csrf_token": server.csrf})
+
+    _post(server.url + "/topic/work/rename", {"new_name": "preferences", "csrf_token": server.csrf})
+
+    status, body = _get(server.url + "/topic/work")
+    assert "Work fact." in body
+    status, body = _get(server.url + "/topic/preferences")
+    assert "Prefs fact." in body

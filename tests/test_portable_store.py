@@ -118,3 +118,42 @@ def test_delete_topic_does_not_affect_other_topics(store):
     store.delete_topic("work")
 
     assert {t.topic for t in store.list_topics()} == {"preferences"}
+
+
+def test_rename_topic_moves_file_and_preserves_content(store):
+    store.write("wrok", "A fact under the typo'd name.")
+
+    assert store.rename_topic("wrok", "work") is True
+    assert not (store.root / "wrok.md").exists()
+    assert "A fact under the typo'd name." in store.read("work")
+    assert store.read("wrok") is None
+
+
+def test_rename_topic_preserves_fact_count_and_updates_label(store):
+    store.write("wrok", "Fact one.")
+    store.write("wrok", "Fact two.")
+
+    store.rename_topic("wrok", "work")
+
+    [info] = store.list_topics()
+    assert info.topic == "work"
+    assert info.slug == "work"
+    assert info.count == 2
+
+
+def test_rename_topic_returns_false_when_source_missing(store):
+    assert store.rename_topic("nonexistent", "work") is False
+
+
+def test_rename_topic_returns_false_for_same_name(store):
+    store.write("work", "A fact.")
+    assert store.rename_topic("work", "work") is False
+
+
+def test_rename_topic_refuses_to_clobber_existing_different_topic(store):
+    store.write("work", "Work fact.")
+    store.write("preferences", "Preferences fact.")
+
+    assert store.rename_topic("work", "preferences") is False
+    assert "Work fact." in store.read("work")
+    assert "Preferences fact." in store.read("preferences")
